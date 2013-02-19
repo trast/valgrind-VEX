@@ -46,11 +46,6 @@
  
    * no FP exceptions, except for handling stack over/underflow
  
-   * FP rounding mode observed only for float->int conversions and
-     int->float conversions which could lose accuracy, and for
-     float-to-float rounding.  For all other operations,
-     round-to-nearest is used, regardless.
- 
    * FP sin/cos/tan/sincos: C2 flag is always cleared.  IOW the
      simulation claims the argument is in-range (-2^63 <= arg <= 2^63)
      even when it isn't.
@@ -249,9 +244,25 @@ static IRExpr* unop ( IROp op, IRExpr* a )
    return IRExpr_Unop(op, a);
 }
 
+static IRExpr* unop_maybe_round ( IROp op, IRExpr* round, IRExpr* a )
+{
+   if (round)
+      return IRExpr_Binop(op, round, a);
+   else
+      return IRExpr_Unop(op, a);
+}
+
 static IRExpr* binop ( IROp op, IRExpr* a1, IRExpr* a2 )
 {
    return IRExpr_Binop(op, a1, a2);
+}
+
+static IRExpr* binop_maybe_round ( IROp op, IRExpr* round, IRExpr* a1, IRExpr* a2 )
+{
+   if (round)
+      return IRExpr_Triop(op, round, a1, a2);
+   else
+      return IRExpr_Binop(op, a1, a2);
 }
 
 static IRExpr* triop ( IROp op, IRExpr* a1, IRExpr* a2, IRExpr* a3 )
@@ -4893,12 +4904,6 @@ static IRExpr* /* :: Ity_I32 */ get_roundingmode ( void )
    return binop( Iop_And32, get_fpround(), mkU32(3) );
 }
 
-static IRExpr* /* :: Ity_I32 */ get_FAKE_roundingmode ( void )
-{
-   return mkU32(Irrm_NEAREST);
-}
-
-
 /* --------- Get/set FP register tag bytes. --------- */
 
 /* Given i, and some expression e, generate 'ST_TAG(i) = e'. */
@@ -5037,20 +5042,19 @@ void fp_do_op_mem_ST_0 ( IRTemp addr, const HChar* op_txt, HChar* dis_buf,
    if (dbl) {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 get_ST(0), 
                 loadLE(Ity_F64,mkexpr(addr))
          ));
    } else {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 get_ST(0), 
                 unop(Iop_F32toF64, loadLE(Ity_F32,mkexpr(addr)))
          ));
    }
 }
-
 
 /* ST(0) = mem64/32(addr) `op` ST(0)
    Need to check ST(0)'s tag on read, but not on write.
@@ -5063,14 +5067,14 @@ void fp_do_oprev_mem_ST_0 ( IRTemp addr, const HChar* op_txt, HChar* dis_buf,
    if (dbl) {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 loadLE(Ity_F64,mkexpr(addr)),
                 get_ST(0)
          ));
    } else {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 unop(Iop_F32toF64, loadLE(Ity_F32,mkexpr(addr))),
                 get_ST(0)
          ));
@@ -5089,7 +5093,7 @@ void fp_do_op_ST_ST ( const HChar* op_txt, IROp op, UInt st_src, UInt st_dst,
    put_ST_UNCHECKED( 
       st_dst, 
       triop( op, 
-             get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+             get_roundingmode(),
              get_ST(st_dst), 
              get_ST(st_src) ) 
    );
@@ -5108,7 +5112,7 @@ void fp_do_oprev_ST_ST ( const HChar* op_txt, IROp op, UInt st_src, UInt st_dst,
    put_ST_UNCHECKED( 
       st_dst, 
       triop( op, 
-             get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+             get_roundingmode(),
              get_ST(st_src), 
              get_ST(st_dst) ) 
    );
@@ -5619,7 +5623,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("f2xm1\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_2xm1F64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                break;
 
@@ -5627,7 +5631,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fyl2x\n");
                put_ST_UNCHECKED(1, 
                   triop(Iop_Yl2xF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(1), 
                         get_ST(0)));
                fp_pop();
@@ -5637,7 +5641,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("ftan\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_TanF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                fp_push();
                put_ST(0, IRExpr_Const(IRConst_F64(1.0)));
@@ -5648,7 +5652,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fpatan\n");
                put_ST_UNCHECKED(1, 
                   triop(Iop_AtanF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(1), 
                         get_ST(0)));
                fp_pop();
@@ -5700,13 +5704,13 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                assign( a2, get_ST(1) );
                put_ST_UNCHECKED(0,
                   triop(Iop_PRem1F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)));
                put_C3210(
                   unop(Iop_32Uto64,
                   triop(Iop_PRem1C3210F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)) ));
                break;
@@ -5727,13 +5731,13 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                assign( a2, get_ST(1) );
                put_ST_UNCHECKED(0,
                   triop(Iop_PRemF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)));
                put_C3210(
                   unop(Iop_32Uto64,
                   triop(Iop_PRemC3210F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)) ));
                break;
@@ -5743,7 +5747,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fyl2xp1\n");
                put_ST_UNCHECKED(1, 
                   triop(Iop_Yl2xp1F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(1), 
                         get_ST(0)));
                fp_pop();
@@ -5753,7 +5757,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fsqrt\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_SqrtF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                break;
 
@@ -5763,12 +5767,12 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fsincos\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_SinF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1)));
                fp_push();
                put_ST(0, 
                   binop(Iop_CosF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1)));
                clear_C2(); /* HACK */
                break;
@@ -5784,7 +5788,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fscale\n");
                put_ST_UNCHECKED(0, 
                   triop(Iop_ScaleF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0), 
                         get_ST(1)));
                break;
@@ -5793,7 +5797,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fsin\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_SinF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                clear_C2(); /* HACK */
                break;
@@ -5802,7 +5806,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fcos\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_CosF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                clear_C2(); /* HACK */
                break;
@@ -5859,7 +5863,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_fop_m32:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0),
                         unop(Iop_I32StoF64,
                              loadLE(Ity_I32, mkexpr(addr)))));
@@ -5868,7 +5872,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_foprev_m32:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         unop(Iop_I32StoF64,
                              loadLE(Ity_I32, mkexpr(addr))),
                         get_ST(0)));
@@ -6572,7 +6576,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_fop_m16:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0),
                         unop(Iop_I32StoF64,
                              unop(Iop_16Sto32, 
@@ -6582,7 +6586,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_foprev_m16:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         unop(Iop_I32StoF64,
                              unop(Iop_16Sto32, 
                                   loadLE(Ity_I16, mkexpr(addr)))),
@@ -8436,7 +8440,8 @@ static ULong dis_SSE_E_to_G_all_wrk (
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
                 const HChar* opname, IROp op,
-                Bool   invertG
+                Bool   invertG,
+		IRExpr* round
              )
 {
    HChar   dis_buf[50];
@@ -8448,8 +8453,8 @@ static ULong dis_SSE_E_to_G_all_wrk (
                 : getXMMReg(gregOfRexRM(pfx,rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
-                           getXMMReg(eregOfRexRM(pfx,rm))) );
+		 binop_maybe_round(op, round, gpart,
+				   getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8457,8 +8462,8 @@ static ULong dis_SSE_E_to_G_all_wrk (
    } else {
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
-                           loadLE(Ity_V128, mkexpr(addr))) );
+                 binop_maybe_round(op, round, gpart,
+				   loadLE(Ity_V128, mkexpr(addr))) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8472,9 +8477,10 @@ static ULong dis_SSE_E_to_G_all_wrk (
 static
 ULong dis_SSE_E_to_G_all ( VexAbiInfo* vbi,
                            Prefix pfx, Long delta, 
-                           const HChar* opname, IROp op )
+                           const HChar* opname, IROp op,
+			   IRExpr* round )
 {
-   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, False );
+   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, False, round );
 }
 
 /* All lanes SSE binary operation, G = (not G) `op` E. */
@@ -8482,9 +8488,10 @@ ULong dis_SSE_E_to_G_all ( VexAbiInfo* vbi,
 static
 ULong dis_SSE_E_to_G_all_invG ( VexAbiInfo* vbi,
                                 Prefix pfx, Long delta, 
-                                const HChar* opname, IROp op )
+                                const HChar* opname, IROp op,
+				IRExpr* round )
 {
-   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, True );
+   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, True, round );
 }
 
 
@@ -8492,7 +8499,8 @@ ULong dis_SSE_E_to_G_all_invG ( VexAbiInfo* vbi,
 
 static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
                                    Prefix pfx, Long delta, 
-                                   const HChar* opname, IROp op )
+                                   const HChar* opname, IROp op,
+				   IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -8501,8 +8509,8 @@ static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
    IRExpr* gpart = getXMMReg(gregOfRexRM(pfx,rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
-                           getXMMReg(eregOfRexRM(pfx,rm))) );
+                 binop_maybe_round(op, round, gpart,
+				   getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8515,7 +8523,7 @@ static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
       assign( epart, unop( Iop_32UtoV128,
                            loadLE(Ity_I32, mkexpr(addr))) );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart, mkexpr(epart)) );
+                 binop_maybe_round(op, round, gpart, mkexpr(epart)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8528,7 +8536,8 @@ static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
 
 static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
                                    Prefix pfx, Long delta, 
-                                   const HChar* opname, IROp op )
+                                   const HChar* opname, IROp op,
+				   IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -8536,9 +8545,9 @@ static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
    UChar   rm = getUChar(delta);
    IRExpr* gpart = getXMMReg(gregOfRexRM(pfx,rm));
    if (epartIsReg(rm)) {
-      putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
-                           getXMMReg(eregOfRexRM(pfx,rm))) );
+      putXMMReg( gregOfRexRM(pfx,rm),
+                 binop_maybe_round(op, round, gpart,
+				   getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8551,7 +8560,7 @@ static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
       assign( epart, unop( Iop_64UtoV128,
                            loadLE(Ity_I64, mkexpr(addr))) );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart, mkexpr(epart)) );
+                 binop_maybe_round(op, round, gpart, mkexpr(epart)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8565,7 +8574,8 @@ static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
 static ULong dis_SSE_E_to_G_unary_all ( 
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
-                const HChar* opname, IROp op
+                const HChar* opname, IROp op,
+		IRExpr* round
              )
 {
    HChar   dis_buf[50];
@@ -8574,7 +8584,7 @@ static ULong dis_SSE_E_to_G_unary_all (
    UChar   rm = getUChar(delta);
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 unop(op, getXMMReg(eregOfRexRM(pfx,rm))) );
+                 unop_maybe_round(op, round, getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8582,7 +8592,7 @@ static ULong dis_SSE_E_to_G_unary_all (
    } else {
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 unop(op, loadLE(Ity_V128, mkexpr(addr))) );
+                 unop_maybe_round(op, round, loadLE(Ity_V128, mkexpr(addr))) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8596,7 +8606,8 @@ static ULong dis_SSE_E_to_G_unary_all (
 static ULong dis_SSE_E_to_G_unary_lo32 ( 
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
-                const HChar* opname, IROp op
+                const HChar* opname, IROp op,
+		IRExpr* round
              )
 {
    /* First we need to get the old G value and patch the low 32 bits
@@ -8613,9 +8624,9 @@ static ULong dis_SSE_E_to_G_unary_lo32 (
    if (epartIsReg(rm)) {
       assign( oldG1, 
               binop( Iop_SetV128lo32,
-                     mkexpr(oldG0),
-                     getXMMRegLane32(eregOfRexRM(pfx,rm), 0)) );
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+		     mkexpr(oldG0),
+		     getXMMRegLane32(eregOfRexRM(pfx,rm), 0)) );
+      putXMMReg( gregOfRexRM(pfx,rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8624,9 +8635,9 @@ static ULong dis_SSE_E_to_G_unary_lo32 (
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       assign( oldG1, 
               binop( Iop_SetV128lo32,
-                     mkexpr(oldG0),
-                     loadLE(Ity_I32, mkexpr(addr)) ));
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+		     mkexpr(oldG0),
+		     loadLE(Ity_I32, mkexpr(addr)) ));
+      putXMMReg( gregOfRexRM(pfx,rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8640,7 +8651,8 @@ static ULong dis_SSE_E_to_G_unary_lo32 (
 static ULong dis_SSE_E_to_G_unary_lo64 ( 
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
-                const HChar* opname, IROp op
+                const HChar* opname, IROp op,
+		IRExpr* round
              )
 {
    /* First we need to get the old G value and patch the low 64 bits
@@ -8659,7 +8671,7 @@ static ULong dis_SSE_E_to_G_unary_lo64 (
               binop( Iop_SetV128lo64,
                      mkexpr(oldG0),
                      getXMMRegLane64(eregOfRexRM(pfx,rm), 0)) );
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRexRM(pfx,rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8670,7 +8682,7 @@ static ULong dis_SSE_E_to_G_unary_lo64 (
               binop( Iop_SetV128lo64,
                      mkexpr(oldG0),
                      loadLE(Ity_I64, mkexpr(addr)) ));
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRexRM(pfx,rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -12358,25 +12370,29 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
       /* F3 0F 51 = SQRTSS -- approx sqrt 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_lo32( vbi, pfx, delta, 
-                                            "sqrtss", Iop_Sqrt32F0x4 );
+                                            "sqrtss", Iop_Sqrt32F0x4,
+					    get_sse_roundingmode() );
          goto decode_success;
       }
       /* 0F 51 = SQRTPS -- approx sqrt 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_all( vbi, pfx, delta, 
-                                           "sqrtps", Iop_Sqrt32Fx4 );
+                                           "sqrtps", Iop_Sqrt32Fx4,
+					   get_sse_roundingmode() );
          goto decode_success;
       }
       /* F2 0F 51 = SQRTSD -- approx sqrt 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_lo64( vbi, pfx, delta, 
-                                            "sqrtsd", Iop_Sqrt64F0x2 );
+                                            "sqrtsd", Iop_Sqrt64F0x2,
+					    get_sse_roundingmode() );
          goto decode_success;
       }
       /* 66 0F 51 = SQRTPD -- approx sqrt 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
          delta = dis_SSE_E_to_G_unary_all( vbi, pfx, delta, 
-                                           "sqrtpd", Iop_Sqrt64Fx2 );
+                                           "sqrtpd", Iop_Sqrt64Fx2,
+					   get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12385,13 +12401,15 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
       /* F3 0F 52 = RSQRTSS -- approx reciprocal sqrt 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_lo32( vbi, pfx, delta, 
-                                            "rsqrtss", Iop_RSqrt32F0x4 );
+                                            "rsqrtss", Iop_RSqrt32F0x4,
+					    get_sse_roundingmode() );
          goto decode_success;
       }
       /* 0F 52 = RSQRTPS -- approx reciprocal sqrt 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_all( vbi, pfx, delta, 
-                                           "rsqrtps", Iop_RSqrt32Fx4 );
+                                           "rsqrtps", Iop_RSqrt32Fx4,
+					   get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12400,13 +12418,15 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
       /* F3 0F 53 = RCPSS -- approx reciprocal 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_lo32( vbi, pfx, delta,
-                                            "rcpss", Iop_Recip32F0x4 );
+                                            "rcpss", Iop_Recip32F0x4,
+					    get_sse_roundingmode() );
          goto decode_success;
       }
       /* 0F 53 = RCPPS -- approx reciprocal 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_unary_all( vbi, pfx, delta,
-                                           "rcpps", Iop_Recip32Fx4 );
+                                           "rcpps", Iop_Recip32Fx4,
+					   get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12414,12 +12434,12 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x54:
       /* 0F 54 = ANDPS -- G = G and E */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "andps", Iop_AndV128 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "andps", Iop_AndV128, NULL );
          goto decode_success;
       }
       /* 66 0F 54 = ANDPD -- G = G and E */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "andpd", Iop_AndV128 );
+         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "andpd", Iop_AndV128, NULL );
          goto decode_success;
       }
       break;
@@ -12428,13 +12448,13 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
       /* 0F 55 = ANDNPS -- G = (not G) and E */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
          delta = dis_SSE_E_to_G_all_invG( vbi, pfx, delta, "andnps",
-                                                           Iop_AndV128 );
+                                                           Iop_AndV128, NULL );
          goto decode_success;
       }
       /* 66 0F 55 = ANDNPD -- G = (not G) and E */
       if (have66noF2noF3(pfx) && sz == 2) {
          delta = dis_SSE_E_to_G_all_invG( vbi, pfx, delta, "andnpd",
-                                                           Iop_AndV128 );
+                                                           Iop_AndV128, NULL );
          goto decode_success;
       }
       break;
@@ -12442,12 +12462,12 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x56:
       /* 0F 56 = ORPS -- G = G and E */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "orps", Iop_OrV128 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "orps", Iop_OrV128, NULL );
          goto decode_success;
       }
       /* 66 0F 56 = ORPD -- G = G and E */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "orpd", Iop_OrV128 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "orpd", Iop_OrV128, NULL );
          goto decode_success;
       }
       break;
@@ -12455,12 +12475,12 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x57:
       /* 66 0F 57 = XORPD -- G = G xor E */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "xorpd", Iop_XorV128 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "xorpd", Iop_XorV128, NULL );
          goto decode_success;
       }
       /* 0F 57 = XORPS -- G = G xor E */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "xorps", Iop_XorV128 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "xorps", Iop_XorV128, NULL );
          goto decode_success;
       }
       break;
@@ -12468,24 +12488,24 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x58:
       /* 0F 58 = ADDPS -- add 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "addps", Iop_Add32Fx4 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "addps", Iop_Add32Fx4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* F3 0F 58 = ADDSS -- add 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "addss", Iop_Add32F0x4 );
+	      delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "addss", Iop_Add32F0x4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* F2 0F 58 = ADDSD -- add 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) 
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "addsd", Iop_Add64F0x2 );
+	      delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "addsd", Iop_Add64F0x2, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 66 0F 58 = ADDPD -- add 32Fx4 from R/M to R */
       if (have66noF2noF3(pfx) 
           && (sz == 2 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "addpd", Iop_Add64Fx2 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "addpd", Iop_Add64Fx2, get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12494,23 +12514,23 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
       /* F2 0F 59 = MULSD -- mul 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) 
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "mulsd", Iop_Mul64F0x2 );
+	      delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "mulsd", Iop_Mul64F0x2, get_sse_roundingmode() );
          goto decode_success;
       }
       /* F3 0F 59 = MULSS -- mul 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "mulss", Iop_Mul32F0x4 );
+	      delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "mulss", Iop_Mul32F0x4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 0F 59 = MULPS -- mul 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "mulps", Iop_Mul32Fx4 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "mulps", Iop_Mul32Fx4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 66 0F 59 = MULPD -- mul 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) 
           && (sz == 2 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "mulpd", Iop_Mul64Fx2 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "mulpd", Iop_Mul64Fx2, get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12607,23 +12627,23 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x5C:
       /* F3 0F 5C = SUBSS -- sub 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "subss", Iop_Sub32F0x4 );
+	      delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "subss", Iop_Sub32F0x4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* F2 0F 5C = SUBSD -- sub 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) 
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "subsd", Iop_Sub64F0x2 );
+	      delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "subsd", Iop_Sub64F0x2, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 0F 5C = SUBPS -- sub 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "subps", Iop_Sub32Fx4 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "subps", Iop_Sub32Fx4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 66 0F 5C = SUBPD -- sub 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "subpd", Iop_Sub64Fx2 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "subpd", Iop_Sub64Fx2, get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12631,22 +12651,22 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x5D:
       /* 0F 5D = MINPS -- min 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "minps", Iop_Min32Fx4 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "minps", Iop_Min32Fx4, NULL );
          goto decode_success;
       }
       /* F3 0F 5D = MINSS -- min 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "minss", Iop_Min32F0x4 );
+	      delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "minss", Iop_Min32F0x4, NULL );
          goto decode_success;
       }
       /* F2 0F 5D = MINSD -- min 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "minsd", Iop_Min64F0x2 );
+	      delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "minsd", Iop_Min64F0x2, NULL );
          goto decode_success;
       }
       /* 66 0F 5D = MINPD -- min 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "minpd", Iop_Min64Fx2 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "minpd", Iop_Min64Fx2, NULL );
          goto decode_success;
       }
       break;
@@ -12654,22 +12674,22 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x5E:
       /* F2 0F 5E = DIVSD -- div 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "divsd", Iop_Div64F0x2 );
+	      delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "divsd", Iop_Div64F0x2, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 0F 5E = DIVPS -- div 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "divps", Iop_Div32Fx4 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "divps", Iop_Div32Fx4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* F3 0F 5E = DIVSS -- div 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "divss", Iop_Div32F0x4 );
+	      delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "divss", Iop_Div32F0x4, get_sse_roundingmode() );
          goto decode_success;
       }
       /* 66 0F 5E = DIVPD -- div 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "divpd", Iop_Div64Fx2 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "divpd", Iop_Div64Fx2, get_sse_roundingmode() );
          goto decode_success;
       }
       break;
@@ -12677,22 +12697,22 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x5F:
       /* 0F 5F = MAXPS -- max 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "maxps", Iop_Max32Fx4 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "maxps", Iop_Max32Fx4, NULL );
          goto decode_success;
       }
       /* F3 0F 5F = MAXSS -- max 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "maxss", Iop_Max32F0x4 );
+	      delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "maxss", Iop_Max32F0x4, NULL );
          goto decode_success;
       }
       /* F2 0F 5F = MAXSD -- max 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "maxsd", Iop_Max64F0x2 );
+	      delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "maxsd", Iop_Max64F0x2, NULL );
          goto decode_success;
       }
       /* 66 0F 5F = MAXPD -- max 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "maxpd", Iop_Max64Fx2 );
+	      delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "maxpd", Iop_Max64Fx2, NULL );
          goto decode_success;
       }
       break;
@@ -13828,7 +13848,7 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0xDB:
       /* 66 0F DB = PAND */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "pand", Iop_AndV128 );
+         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "pand", Iop_AndV128, NULL );
          goto decode_success;
       }
       break;
@@ -13871,7 +13891,7 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0xDF:
       /* 66 0F DF = PANDN */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all_invG( vbi, pfx, delta, "pandn", Iop_AndV128 );
+         delta = dis_SSE_E_to_G_all_invG( vbi, pfx, delta, "pandn", Iop_AndV128, NULL );
          goto decode_success;
       }
       break;
@@ -14046,7 +14066,7 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0xEB:
       /* 66 0F EB = POR */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "por", Iop_OrV128 );
+         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "por", Iop_OrV128, NULL );
          goto decode_success;
       }
       break;
@@ -14089,7 +14109,7 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0xEF:
       /* 66 0F EF = PXOR */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "pxor", Iop_XorV128 );
+         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "pxor", Iop_XorV128, NULL );
          goto decode_success;
       }
       break;
@@ -26668,7 +26688,7 @@ static Long dis_FMA ( VexAbiInfo* vbi, Prefix pfx, Long delta, UChar opc )
       if ((i & 1) ? negateZodd : negateZeven)
          z[i] = unop(ty == Ity_F64 ? Iop_NegF64 : Iop_NegF32, z[i]);
       x[i] = IRExpr_Qop(ty == Ity_F64 ? Iop_MAddF64 : Iop_MAddF32,
-                        get_FAKE_roundingmode(), x[i], y[i], z[i]);
+                        get_sse_roundingmode(), x[i], y[i], z[i]);
       if (negateRes)
          x[i] = unop(ty == Ity_F64 ? Iop_NegF64 : Iop_NegF32, x[i]);
       if (ty == Ity_F64)

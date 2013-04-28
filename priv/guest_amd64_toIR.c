@@ -11493,16 +11493,16 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8) ) {
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
-            putXMMRegLane64( gregOfRexRM(pfx,modrm), 0,
-                             getXMMRegLane64( eregOfRexRM(pfx,modrm), 0 ));
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm), 0,
+                              getXMMRegLane64F( eregOfRexRM(pfx,modrm), 0 ));
             DIP("movsd %s,%s\n", nameXMMReg(eregOfRexRM(pfx,modrm)),
                                  nameXMMReg(gregOfRexRM(pfx,modrm)));
             delta += 1;
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             putXMMReg( gregOfRexRM(pfx,modrm), mkV128(0) );
-            putXMMRegLane64( gregOfRexRM(pfx,modrm), 0,
-                             loadLE(Ity_I64, mkexpr(addr)) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm), 0,
+                             loadLE(Ity_F64, mkexpr(addr)) );
             DIP("movsd %s,%s\n", dis_buf,
                                  nameXMMReg(gregOfRexRM(pfx,modrm)));
             delta += alen;
@@ -11515,16 +11515,16 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
-            putXMMRegLane32( gregOfRexRM(pfx,modrm), 0,
-                             getXMMRegLane32( eregOfRexRM(pfx,modrm), 0 ));
+            putXMMRegLane32F( gregOfRexRM(pfx,modrm), 0,
+                              getXMMRegLane32F( eregOfRexRM(pfx,modrm), 0 ));
             DIP("movss %s,%s\n", nameXMMReg(eregOfRexRM(pfx,modrm)),
                                  nameXMMReg(gregOfRexRM(pfx,modrm)));
             delta += 1;
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             putXMMReg( gregOfRexRM(pfx,modrm), mkV128(0) );
-            putXMMRegLane32( gregOfRexRM(pfx,modrm), 0,
-                             loadLE(Ity_I32, mkexpr(addr)) );
+            putXMMRegLane32F( gregOfRexRM(pfx,modrm), 0,
+                             loadLE(Ity_F32, mkexpr(addr)) );
             DIP("movss %s,%s\n", dis_buf,
                                  nameXMMReg(gregOfRexRM(pfx,modrm)));
             delta += alen;
@@ -11560,15 +11560,15 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
-            putXMMRegLane64( eregOfRexRM(pfx,modrm), 0,
-                             getXMMRegLane64( gregOfRexRM(pfx,modrm), 0 ));
+            putXMMRegLane64F( eregOfRexRM(pfx,modrm), 0,
+                              getXMMRegLane64F( gregOfRexRM(pfx,modrm), 0 ));
             DIP("movsd %s,%s\n", nameXMMReg(gregOfRexRM(pfx,modrm)),
                                  nameXMMReg(eregOfRexRM(pfx,modrm)));
             delta += 1;
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             storeLE( mkexpr(addr),
-                     getXMMRegLane64(gregOfRexRM(pfx,modrm), 0) );
+                     getXMMRegLane64F(gregOfRexRM(pfx,modrm), 0) );
             DIP("movsd %s,%s\n", nameXMMReg(gregOfRexRM(pfx,modrm)),
                                  dis_buf);
             delta += alen;
@@ -11584,7 +11584,7 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             storeLE( mkexpr(addr),
-                     getXMMRegLane32(gregOfRexRM(pfx,modrm), 0) );
+                     getXMMRegLane32F(gregOfRexRM(pfx,modrm), 0) );
             DIP("movss %s,%s\n", nameXMMReg(gregOfRexRM(pfx,modrm)),
                                  dis_buf);
             delta += alen;
@@ -11638,9 +11638,9 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
-            putXMMRegLane64( gregOfRexRM(pfx,modrm),
-                             0/*lower lane*/,
-                             loadLE(Ity_I64, mkexpr(addr)) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm),
+                              0/*lower lane*/,
+                              loadLE(Ity_F64, mkexpr(addr)) );
             DIP("movlpd %s, %s\n", 
                 dis_buf, nameXMMReg( gregOfRexRM(pfx,modrm) ));
             goto decode_success;
@@ -11653,16 +11653,16 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
             delta += 1;
-            putXMMRegLane64( gregOfRexRM(pfx,modrm),  
-                             0/*lower lane*/,
-                             getXMMRegLane64( eregOfRexRM(pfx,modrm), 1 ));
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm),
+                              0/*lower lane*/,
+                              getXMMRegLane64F( eregOfRexRM(pfx,modrm), 1 ));
             DIP("movhlps %s, %s\n", nameXMMReg(eregOfRexRM(pfx,modrm)), 
                                     nameXMMReg(gregOfRexRM(pfx,modrm)));
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
-            putXMMRegLane64( gregOfRexRM(pfx,modrm),  0/*lower lane*/,
-                             loadLE(Ity_I64, mkexpr(addr)) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm),  0/*lower lane*/,
+                              loadLE(Ity_F64, mkexpr(addr)) );
             DIP("movlps %s, %s\n", 
                 dis_buf, nameXMMReg( gregOfRexRM(pfx,modrm) ));
          }
@@ -11679,8 +11679,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
             storeLE( mkexpr(addr), 
-                     getXMMRegLane64( gregOfRexRM(pfx,modrm), 
-                                      0/*lower lane*/ ) );
+                     getXMMRegLane64F( gregOfRexRM(pfx,modrm),
+                                       0/*lower lane*/ ) );
             DIP("movlps %s, %s\n", nameXMMReg( gregOfRexRM(pfx,modrm) ),
                                    dis_buf);
             goto decode_success;
@@ -11696,8 +11696,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
             storeLE( mkexpr(addr), 
-                     getXMMRegLane64( gregOfRexRM(pfx,modrm), 
-                                      0/*lower lane*/ ) );
+                     getXMMRegLane64F( gregOfRexRM(pfx,modrm),
+                                       0/*lower lane*/ ) );
             DIP("movlpd %s, %s\n", nameXMMReg( gregOfRexRM(pfx,modrm) ),
                                    dis_buf);
             goto decode_success;
@@ -11777,8 +11777,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
-            putXMMRegLane64( gregOfRexRM(pfx,modrm), 1/*upper lane*/,
-                             loadLE(Ity_I64, mkexpr(addr)) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm), 1/*upper lane*/,
+                              loadLE(Ity_F64, mkexpr(addr)) );
             DIP("movhpd %s,%s\n", dis_buf, 
                                   nameXMMReg( gregOfRexRM(pfx,modrm) ));
             goto decode_success;
@@ -11791,15 +11791,15 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          modrm = getUChar(delta);
          if (epartIsReg(modrm)) {
             delta += 1;
-            putXMMRegLane64( gregOfRexRM(pfx,modrm), 1/*upper lane*/,
-                             getXMMRegLane64( eregOfRexRM(pfx,modrm), 0 ) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm), 1/*upper lane*/,
+                              getXMMRegLane64F( eregOfRexRM(pfx,modrm), 0 ) );
             DIP("movhps %s,%s\n", nameXMMReg(eregOfRexRM(pfx,modrm)), 
                                   nameXMMReg(gregOfRexRM(pfx,modrm)));
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
-            putXMMRegLane64( gregOfRexRM(pfx,modrm), 1/*upper lane*/,
-                             loadLE(Ity_I64, mkexpr(addr)) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm), 1/*upper lane*/,
+                              loadLE(Ity_F64, mkexpr(addr)) );
             DIP("movhps %s,%s\n", dis_buf, 
                                   nameXMMReg( gregOfRexRM(pfx,modrm) ));
          }
@@ -11816,8 +11816,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
             storeLE( mkexpr(addr), 
-                     getXMMRegLane64( gregOfRexRM(pfx,modrm),
-                                      1/*upper lane*/ ) );
+                     getXMMRegLane64F( gregOfRexRM(pfx,modrm),
+                                       1/*upper lane*/ ) );
             DIP("movhps %s,%s\n", nameXMMReg( gregOfRexRM(pfx,modrm) ),
                                   dis_buf);
             goto decode_success;
@@ -11833,8 +11833,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             delta += alen;
             storeLE( mkexpr(addr), 
-                     getXMMRegLane64( gregOfRexRM(pfx,modrm),
-                                      1/*upper lane*/ ) );
+                     getXMMRegLane64F( gregOfRexRM(pfx,modrm),
+                                       1/*upper lane*/ ) );
             DIP("movhpd %s,%s\n", nameXMMReg( gregOfRexRM(pfx,modrm) ),
                                   dis_buf);
             goto decode_success;
@@ -13117,8 +13117,8 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
          } else {
             addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
             putXMMReg( gregOfRexRM(pfx,modrm), mkV128(0) );
-            putXMMRegLane64( gregOfRexRM(pfx,modrm), 0,
-                             loadLE(Ity_I64, mkexpr(addr)) );
+            putXMMRegLane64F( gregOfRexRM(pfx,modrm), 0,
+                              loadLE(Ity_F64, mkexpr(addr)) );
             DIP("movsd %s,%s\n", dis_buf,
                                  nameXMMReg(gregOfRexRM(pfx,modrm)));
             delta += alen;

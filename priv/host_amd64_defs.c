@@ -1334,7 +1334,7 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
    initHRegUsage(u);
    switch (i->tag) {
       case Ain_Imm64:
-         addHRegUse(u, HRmWrite, i->Ain.Imm64.dst);
+         appendHRegUse(u, HRmWrite, i->Ain.Imm64.dst);
          return;
       case Ain_Alu64R:
          addRegUsage_AMD64RMI(u, i->Ain.Alu64R.src);
@@ -1353,15 +1353,15 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          addRegUsage_AMD64AMode(u, i->Ain.Alu64M.dst);
          return;
       case Ain_Sh64:
-         addHRegUse(u, HRmModify, i->Ain.Sh64.dst);
+         appendHRegUse(u, HRmModify, i->Ain.Sh64.dst);
          if (i->Ain.Sh64.src == 0)
             addHRegUse(u, HRmRead, hregAMD64_RCX());
          return;
       case Ain_Test64:
-         addHRegUse(u, HRmRead, i->Ain.Test64.dst);
+         appendHRegUse(u, HRmRead, i->Ain.Test64.dst);
          return;
       case Ain_Unary64:
-         addHRegUse(u, HRmModify, i->Ain.Unary64.dst);
+         appendHRegUse(u, HRmModify, i->Ain.Unary64.dst);
          return;
       case Ain_Lea64:
          addRegUsage_AMD64AMode(u, i->Ain.Lea64.am);
@@ -1397,37 +1397,37 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
             These I believe to be: rax rcx rdx rsi rdi r8 r9 r10 r11 
             and all the xmm registers.
          */
-         addHRegUse(u, HRmWrite, hregAMD64_RAX());
-         addHRegUse(u, HRmWrite, hregAMD64_RCX());
-         addHRegUse(u, HRmWrite, hregAMD64_RDX());
-         addHRegUse(u, HRmWrite, hregAMD64_RSI());
-         addHRegUse(u, HRmWrite, hregAMD64_RDI());
-         addHRegUse(u, HRmWrite, hregAMD64_R8());
-         addHRegUse(u, HRmWrite, hregAMD64_R9());
-         addHRegUse(u, HRmWrite, hregAMD64_R10());
-         addHRegUse(u, HRmWrite, hregAMD64_R11());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM0());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM1());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM3());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM4());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM5());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM6());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM7());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM8());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM9());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM10());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM11());
-         addHRegUse(u, HRmWrite, hregAMD64_XMM12());
+         appendHRegUse(u, HRmWrite, hregAMD64_RAX()); /* 0 */
+         appendHRegUse(u, HRmWrite, hregAMD64_RCX()); /* 1 */
+         appendHRegUse(u, HRmWrite, hregAMD64_RDX()); /* 2 */
+         appendHRegUse(u, HRmWrite, hregAMD64_RSI()); /* 3 */
+         appendHRegUse(u, HRmWrite, hregAMD64_RDI()); /* 4 */
+         appendHRegUse(u, HRmWrite, hregAMD64_R8());  /* 5 */
+         appendHRegUse(u, HRmWrite, hregAMD64_R9());  /* 6 */
+         appendHRegUse(u, HRmWrite, hregAMD64_R10());
+         appendHRegUse(u, HRmWrite, hregAMD64_R11());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM0());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM1());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM3());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM4());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM5());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM6());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM7());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM8());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM9());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM10());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM11());
+         appendHRegUse(u, HRmWrite, hregAMD64_XMM12());
 
          /* Now we have to state any parameter-carrying registers
             which might be read.  This depends on the regparmness. */
          switch (i->Ain.Call.regparms) {
-            case 6: addHRegUse(u, HRmRead, hregAMD64_R9());  /*fallthru*/
-            case 5: addHRegUse(u, HRmRead, hregAMD64_R8());  /*fallthru*/
-            case 4: addHRegUse(u, HRmRead, hregAMD64_RCX()); /*fallthru*/
-            case 3: addHRegUse(u, HRmRead, hregAMD64_RDX()); /*fallthru*/
-            case 2: addHRegUse(u, HRmRead, hregAMD64_RSI()); /*fallthru*/
-            case 1: addHRegUse(u, HRmRead, hregAMD64_RDI()); break;
+            case 6: updateHRegUse(u, 6, HRmModify, hregAMD64_R9(), HRmWrite);  /*fallthru*/
+            case 5: updateHRegUse(u, 5, HRmModify, hregAMD64_R8(), HRmWrite);  /*fallthru*/
+            case 4: updateHRegUse(u, 1, HRmModify, hregAMD64_RCX(), HRmWrite); /*fallthru*/
+            case 3: updateHRegUse(u, 2, HRmModify, hregAMD64_RDX(), HRmWrite); /*fallthru*/
+            case 2: updateHRegUse(u, 3, HRmModify, hregAMD64_RSI(), HRmWrite); /*fallthru*/
+            case 1: updateHRegUse(u, 4, HRmModify, hregAMD64_RDI(), HRmWrite); break;
             case 0: break;
             default: vpanic("getRegUsage_AMD64Instr:Call:regparms");
          }
@@ -1435,7 +1435,7 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
             register because the literal target address has to be
             loaded into a register.  Fortunately, r11 is stated in the
             ABI as a scratch register, and so seems a suitable victim.  */
-         addHRegUse(u, HRmWrite, hregAMD64_R11());
+         /* addHRegUse(u, HRmWrite, hregAMD64_R11()); -- already done above */
          /* Upshot of this is that the assembler really must use r11,
             and no other, as a destination temporary. */
          return;
@@ -1451,12 +1451,12 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          return;
       case Ain_XIndir:
          /* Ditto re %r11 */
-         addHRegUse(u, HRmRead, i->Ain.XIndir.dstGA);
+         appendHRegUse(u, HRmRead, i->Ain.XIndir.dstGA);
          addRegUsage_AMD64AMode(u, i->Ain.XIndir.amRIP);
          return;
       case Ain_XAssisted:
          /* Ditto re %r11 and %rbp (the baseblock ptr) */
-         addHRegUse(u, HRmRead, i->Ain.XAssisted.dstGA);
+         appendHRegUse(u, HRmRead, i->Ain.XAssisted.dstGA);
          addRegUsage_AMD64AMode(u, i->Ain.XAssisted.amRIP);
          return;
       case Ain_CMov64:
@@ -1464,7 +1464,7 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          addHRegUse(u, HRmModify, i->Ain.CMov64.dst);
          return;
       case Ain_MovxLQ:
-         addHRegUse(u, HRmRead,  i->Ain.MovxLQ.src);
+         appendHRegUse(u, HRmRead,  i->Ain.MovxLQ.src);
          addHRegUse(u, HRmWrite, i->Ain.MovxLQ.dst);
          return;
       case Ain_LoadEX:
@@ -1472,14 +1472,14 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          addHRegUse(u, HRmWrite, i->Ain.LoadEX.dst);
          return;
       case Ain_Store:
-         addHRegUse(u, HRmRead, i->Ain.Store.src);
+         appendHRegUse(u, HRmRead, i->Ain.Store.src);
          addRegUsage_AMD64AMode(u, i->Ain.Store.dst);
          return;
       case Ain_Set64:
-         addHRegUse(u, HRmWrite, i->Ain.Set64.dst);
+         appendHRegUse(u, HRmWrite, i->Ain.Set64.dst);
          return;
       case Ain_Bsfr64:
-         addHRegUse(u, HRmRead, i->Ain.Bsfr64.src);
+         appendHRegUse(u, HRmRead, i->Ain.Bsfr64.src);
          addHRegUse(u, HRmWrite, i->Ain.Bsfr64.dst);
          return;
       case Ain_MFence:
@@ -1513,20 +1513,20 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          addRegUsage_AMD64AMode(u, i->Ain.LdMXCSR.addr);
          return;
       case Ain_SseUComIS:
-         addHRegUse(u, HRmRead,  i->Ain.SseUComIS.srcL);
+         appendHRegUse(u, HRmRead,  i->Ain.SseUComIS.srcL);
          addHRegUse(u, HRmRead,  i->Ain.SseUComIS.srcR);
          addHRegUse(u, HRmWrite, i->Ain.SseUComIS.dst);
          return;
       case Ain_SseSI2SF:
-         addHRegUse(u, HRmRead,  i->Ain.SseSI2SF.src);
+         appendHRegUse(u, HRmRead,  i->Ain.SseSI2SF.src);
          addHRegUse(u, HRmWrite, i->Ain.SseSI2SF.dst);
          return;
       case Ain_SseSF2SI:
-         addHRegUse(u, HRmRead,  i->Ain.SseSF2SI.src);
+         appendHRegUse(u, HRmRead,  i->Ain.SseSF2SI.src);
          addHRegUse(u, HRmWrite, i->Ain.SseSF2SI.dst);
          return;
       case Ain_SseSDSS:
-         addHRegUse(u, HRmRead,  i->Ain.SseSDSS.src);
+         appendHRegUse(u, HRmRead,  i->Ain.SseSDSS.src);
          addHRegUse(u, HRmWrite, i->Ain.SseSDSS.dst);
          return;
       case Ain_SseLdSt:
@@ -1570,7 +1570,7 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          unary = toBool( i->Ain.Sse64FLo.op == Asse_RCPF
                          || i->Ain.Sse64FLo.op == Asse_RSQRTF
                          || i->Ain.Sse64FLo.op == Asse_SQRTF );
-         addHRegUse(u, HRmRead, i->Ain.Sse64FLo.src);
+         appendHRegUse(u, HRmRead, i->Ain.Sse64FLo.src);
          addHRegUse(u, unary ? HRmWrite : HRmModify, 
                        i->Ain.Sse64FLo.dst);
          return;
@@ -1582,20 +1582,20 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
                r,r' as a write of a value to r, and independent of any
                previous value in r */
             /* (as opposed to a rite of passage :-) */
-            addHRegUse(u, HRmWrite, i->Ain.SseReRg.dst);
+            appendHRegUse(u, HRmWrite, i->Ain.SseReRg.dst);
          } else {
-            addHRegUse(u, HRmRead, i->Ain.SseReRg.src);
+            appendHRegUse(u, HRmRead, i->Ain.SseReRg.src);
             addHRegUse(u, i->Ain.SseReRg.op == Asse_MOV 
                              ? HRmWrite : HRmModify, 
                           i->Ain.SseReRg.dst);
          }
          return;
       case Ain_SseCMov:
-         addHRegUse(u, HRmRead,   i->Ain.SseCMov.src);
+         appendHRegUse(u, HRmRead,   i->Ain.SseCMov.src);
          addHRegUse(u, HRmModify, i->Ain.SseCMov.dst);
          return;
       case Ain_SseShuf:
-         addHRegUse(u, HRmRead,  i->Ain.SseShuf.src);
+         appendHRegUse(u, HRmRead,  i->Ain.SseShuf.src);
          addHRegUse(u, HRmWrite, i->Ain.SseShuf.dst);
          return;
       //uu case Ain_AvxLdSt:
@@ -1623,7 +1623,7 @@ void getRegUsage_AMD64Instr ( HRegUsage* u, AMD64Instr* i, Bool mode64 )
          addRegUsage_AMD64AMode(u, i->Ain.EvCheck.amFailAddr);
          return;
       case Ain_ProfInc:
-         addHRegUse(u, HRmWrite, hregAMD64_R11());
+         appendHRegUse(u, HRmWrite, hregAMD64_R11());
          return;
       default:
          ppAMD64Instr(i, mode64);

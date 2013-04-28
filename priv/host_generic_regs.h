@@ -187,6 +187,25 @@ static inline void initHRegUsage ( HRegUsage* tab ) {
 */
 extern void addHRegUse ( HRegUsage*, HRegMode, HReg );
 
+/* Likewise, but doesn't combine, only append at end */
+static inline void appendHRegUse ( HRegUsage* tab, HRegMode mode, HReg reg )
+{
+   int i;
+   vassert(tab->n_used < N_HREG_USAGE);
+   i = tab->n_used++;
+   tab->hreg[i] = reg;
+   tab->mode[i] = mode;
+}
+
+/* Update a field in a HRegUse. If you already know the slot in which
+ * the register was recorded, this avoids searching for it */
+static inline void updateHRegUse ( HRegUsage* tab, int i, HRegMode mode, HReg reg, HRegMode oldmode )
+{
+   vassert(i < tab->n_used);
+   vassert(sameHReg(tab->hreg[i], reg));
+   vassert(tab->mode[i] == oldmode);
+   tab->mode[i] = mode;
+}
 
 
 /*---------------------------------------------------------*/

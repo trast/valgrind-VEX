@@ -3065,6 +3065,8 @@ void typeOfPrimop ( IROp op,
       case Iop_Mul64Fx4: case Iop_Div64Fx4:
       case Iop_Add32Fx8: case Iop_Sub32Fx8:
       case Iop_Mul32Fx8: case Iop_Div32Fx8:
+	 TERNARY(ity_RMode,Ity_V256,Ity_V256, Ity_V256);
+
       case Iop_AndV256:  case Iop_OrV256:
       case Iop_XorV256:
       case Iop_Max32Fx8: case Iop_Min32Fx8:
@@ -3097,11 +3099,13 @@ void typeOfPrimop ( IROp op,
       case Iop_V128HLtoV256:
          BINARY(Ity_V128,Ity_V128, Ity_V256);
 
-      case Iop_NotV256:
       case Iop_RSqrt32Fx8:
       case Iop_Sqrt32Fx8:
       case Iop_Sqrt64Fx4:
       case Iop_Recip32Fx8:
+         BINARY(ity_RMode, Ity_V256, Ity_V256);
+
+      case Iop_NotV256:
       case Iop_CmpNEZ8x32: case Iop_CmpNEZ16x16:
       case Iop_CmpNEZ64x4: case Iop_CmpNEZ32x8:
          UNARY(Ity_V256, Ity_V256);

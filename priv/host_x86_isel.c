@@ -3292,7 +3292,6 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
 
       case Iop_Recip32Fx4: op = Xsse_RCPF;   goto do_32Fx4_unary;
       case Iop_RSqrt32Fx4: op = Xsse_RSQRTF; goto do_32Fx4_unary;
-      case Iop_Sqrt32Fx4:  op = Xsse_SQRTF;  goto do_32Fx4_unary;
       do_32Fx4_unary:
       {
          HReg arg = iselVecExpr(env, e->Iex.Unop.arg);
@@ -3303,7 +3302,6 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
 
       case Iop_Recip64Fx2: op = Xsse_RCPF;   goto do_64Fx2_unary;
       case Iop_RSqrt64Fx2: op = Xsse_RSQRTF; goto do_64Fx2_unary;
-      case Iop_Sqrt64Fx2:  op = Xsse_SQRTF;  goto do_64Fx2_unary;
       do_64Fx2_unary:
       {
          HReg arg = iselVecExpr(env, e->Iex.Unop.arg);
@@ -3315,7 +3313,6 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
 
       case Iop_Recip32F0x4: op = Xsse_RCPF;   goto do_32F0x4_unary;
       case Iop_RSqrt32F0x4: op = Xsse_RSQRTF; goto do_32F0x4_unary;
-      case Iop_Sqrt32F0x4:  op = Xsse_SQRTF;  goto do_32F0x4_unary;
       do_32F0x4_unary:
       {
          /* A bit subtle.  We have to copy the arg to the result
@@ -3333,7 +3330,6 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
 
       case Iop_Recip64F0x2: op = Xsse_RCPF;   goto do_64F0x2_unary;
       case Iop_RSqrt64F0x2: op = Xsse_RSQRTF; goto do_64F0x2_unary;
-      case Iop_Sqrt64F0x2:  op = Xsse_SQRTF;  goto do_64F0x2_unary;
       do_64F0x2_unary:
       {
          /* A bit subtle.  We have to copy the arg to the result
@@ -3379,6 +3375,60 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
 
    if (e->tag == Iex_Binop) {
    switch (e->Iex.Binop.op) {
+
+      /* ROUNDED UNARIES */
+      case Iop_Sqrt32Fx4:  op = Xsse_SQRTF;  goto do_32Fx4_unary_rounded;
+      do_32Fx4_unary_rounded:
+      {
+         HReg arg = iselVecExpr(env, e->Iex.Binop.arg2);
+         HReg dst = newVRegV(env);
+         addInstr(env, X86Instr_Sse32Fx4(op, arg, dst));
+         return dst;
+      }
+
+      case Iop_Sqrt64Fx2:  op = Xsse_SQRTF;  goto do_64Fx2_unary_rounded;
+      do_64Fx2_unary_rounded:
+      {
+         HReg arg = iselVecExpr(env, e->Iex.Binop.arg2);
+         HReg dst = newVRegV(env);
+         REQUIRE_SSE2;
+         addInstr(env, X86Instr_Sse64Fx2(op, arg, dst));
+         return dst;
+      }
+
+      case Iop_Sqrt32F0x4:  op = Xsse_SQRTF;  goto do_32F0x4_unary_rounded;
+      do_32F0x4_unary_rounded:
+      {
+         /* A bit subtle.  We have to copy the arg to the result
+            register first, because actually doing the SSE scalar insn
+            leaves the upper 3/4 of the destination register
+            unchanged.  Whereas the required semantics of these
+            primops is that the upper 3/4 is simply copied in from the
+            argument. */
+         HReg arg = iselVecExpr(env, e->Iex.Binop.arg2);
+         HReg dst = newVRegV(env);
+         addInstr(env, mk_vMOVsd_RR(arg, dst));
+         addInstr(env, X86Instr_Sse32FLo(op, arg, dst));
+         return dst;
+      }
+
+      case Iop_Sqrt64F0x2:  op = Xsse_SQRTF;  goto do_64F0x2_unary_rounded;
+      do_64F0x2_unary_rounded:
+      {
+         /* A bit subtle.  We have to copy the arg to the result
+            register first, because actually doing the SSE scalar insn
+            leaves the upper half of the destination register
+            unchanged.  Whereas the required semantics of these
+            primops is that the upper half is simply copied in from the
+            argument. */
+         HReg arg = iselVecExpr(env, e->Iex.Binop.arg2);
+         HReg dst = newVRegV(env);
+         REQUIRE_SSE2;
+         addInstr(env, mk_vMOVsd_RR(arg, dst));
+         addInstr(env, X86Instr_Sse64FLo(op, arg, dst));
+         return dst;
+      }
+      /* END ROUNDED UNARIES */
 
       case Iop_SetV128lo32: {
          HReg dst = newVRegV(env);
@@ -3436,12 +3486,8 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
       case Iop_CmpLT32Fx4: op = Xsse_CMPLTF; goto do_32Fx4;
       case Iop_CmpLE32Fx4: op = Xsse_CMPLEF; goto do_32Fx4;
       case Iop_CmpUN32Fx4: op = Xsse_CMPUNF; goto do_32Fx4;
-      case Iop_Add32Fx4:   op = Xsse_ADDF;   goto do_32Fx4;
-      case Iop_Div32Fx4:   op = Xsse_DIVF;   goto do_32Fx4;
       case Iop_Max32Fx4:   op = Xsse_MAXF;   goto do_32Fx4;
       case Iop_Min32Fx4:   op = Xsse_MINF;   goto do_32Fx4;
-      case Iop_Mul32Fx4:   op = Xsse_MULF;   goto do_32Fx4;
-      case Iop_Sub32Fx4:   op = Xsse_SUBF;   goto do_32Fx4;
       do_32Fx4:
       {
          HReg argL = iselVecExpr(env, e->Iex.Binop.arg1);
@@ -3456,12 +3502,8 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
       case Iop_CmpLT64Fx2: op = Xsse_CMPLTF; goto do_64Fx2;
       case Iop_CmpLE64Fx2: op = Xsse_CMPLEF; goto do_64Fx2;
       case Iop_CmpUN64Fx2: op = Xsse_CMPUNF; goto do_64Fx2;
-      case Iop_Add64Fx2:   op = Xsse_ADDF;   goto do_64Fx2;
-      case Iop_Div64Fx2:   op = Xsse_DIVF;   goto do_64Fx2;
       case Iop_Max64Fx2:   op = Xsse_MAXF;   goto do_64Fx2;
       case Iop_Min64Fx2:   op = Xsse_MINF;   goto do_64Fx2;
-      case Iop_Mul64Fx2:   op = Xsse_MULF;   goto do_64Fx2;
-      case Iop_Sub64Fx2:   op = Xsse_SUBF;   goto do_64Fx2;
       do_64Fx2:
       {
          HReg argL = iselVecExpr(env, e->Iex.Binop.arg1);
@@ -3477,12 +3519,8 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
       case Iop_CmpLT32F0x4: op = Xsse_CMPLTF; goto do_32F0x4;
       case Iop_CmpLE32F0x4: op = Xsse_CMPLEF; goto do_32F0x4;
       case Iop_CmpUN32F0x4: op = Xsse_CMPUNF; goto do_32F0x4;
-      case Iop_Add32F0x4:   op = Xsse_ADDF;   goto do_32F0x4;
-      case Iop_Div32F0x4:   op = Xsse_DIVF;   goto do_32F0x4;
       case Iop_Max32F0x4:   op = Xsse_MAXF;   goto do_32F0x4;
       case Iop_Min32F0x4:   op = Xsse_MINF;   goto do_32F0x4;
-      case Iop_Mul32F0x4:   op = Xsse_MULF;   goto do_32F0x4;
-      case Iop_Sub32F0x4:   op = Xsse_SUBF;   goto do_32F0x4;
       do_32F0x4: {
          HReg argL = iselVecExpr(env, e->Iex.Binop.arg1);
          HReg argR = iselVecExpr(env, e->Iex.Binop.arg2);
@@ -3496,12 +3534,8 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
       case Iop_CmpLT64F0x2: op = Xsse_CMPLTF; goto do_64F0x2;
       case Iop_CmpLE64F0x2: op = Xsse_CMPLEF; goto do_64F0x2;
       case Iop_CmpUN64F0x2: op = Xsse_CMPUNF; goto do_64F0x2;
-      case Iop_Add64F0x2:   op = Xsse_ADDF;   goto do_64F0x2;
-      case Iop_Div64F0x2:   op = Xsse_DIVF;   goto do_64F0x2;
       case Iop_Max64F0x2:   op = Xsse_MAXF;   goto do_64F0x2;
       case Iop_Min64F0x2:   op = Xsse_MINF;   goto do_64F0x2;
-      case Iop_Mul64F0x2:   op = Xsse_MULF;   goto do_64F0x2;
-      case Iop_Sub64F0x2:   op = Xsse_SUBF;   goto do_64F0x2;
       do_64F0x2: {
          HReg argL = iselVecExpr(env, e->Iex.Binop.arg1);
          HReg argR = iselVecExpr(env, e->Iex.Binop.arg2);
@@ -3671,6 +3705,71 @@ static HReg iselVecExpr_wrk ( ISelEnv* env, IRExpr* e )
          break;
    } /* switch (e->Iex.Binop.op) */
    } /* if (e->tag == Iex_Binop) */
+
+   if (e->tag == Iex_Triop) {
+   IRTriop *triop = e->Iex.Triop.details;
+   switch (triop->op) {
+      /* ROUNDED BINARIES */
+      case Iop_Mul32Fx4:   op = Xsse_MULF;   goto do_32Fx4_rounded;
+      case Iop_Sub32Fx4:   op = Xsse_SUBF;   goto do_32Fx4_rounded;
+      case Iop_Add32Fx4:   op = Xsse_ADDF;   goto do_32Fx4_rounded;
+      case Iop_Div32Fx4:   op = Xsse_DIVF;   goto do_32Fx4_rounded;
+      do_32Fx4_rounded:
+      {
+         HReg argL = iselVecExpr(env, triop->arg2);
+         HReg argR = iselVecExpr(env, triop->arg3);
+         HReg dst = newVRegV(env);
+         addInstr(env, mk_vMOVsd_RR(argL, dst));
+         addInstr(env, X86Instr_Sse32Fx4(op, argR, dst));
+         return dst;
+      }
+
+      case Iop_Mul64Fx2:   op = Xsse_MULF;   goto do_64Fx2_rounded;
+      case Iop_Sub64Fx2:   op = Xsse_SUBF;   goto do_64Fx2_rounded;
+      case Iop_Add64Fx2:   op = Xsse_ADDF;   goto do_64Fx2_rounded;
+      case Iop_Div64Fx2:   op = Xsse_DIVF;   goto do_64Fx2_rounded;
+      do_64Fx2_rounded:
+      {
+         HReg argL = iselVecExpr(env, triop->arg2);
+         HReg argR = iselVecExpr(env, triop->arg3);
+         HReg dst = newVRegV(env);
+         REQUIRE_SSE2;
+         addInstr(env, mk_vMOVsd_RR(argL, dst));
+         addInstr(env, X86Instr_Sse64Fx2(op, argR, dst));
+         return dst;
+      }
+
+      case Iop_Mul32F0x4:   op = Xsse_MULF;   goto do_32F0x4_rounded;
+      case Iop_Sub32F0x4:   op = Xsse_SUBF;   goto do_32F0x4_rounded;
+      case Iop_Add32F0x4:   op = Xsse_ADDF;   goto do_32F0x4_rounded;
+      case Iop_Div32F0x4:   op = Xsse_DIVF;   goto do_32F0x4_rounded;
+      do_32F0x4_rounded: {
+         HReg argL = iselVecExpr(env, triop->arg2);
+         HReg argR = iselVecExpr(env, triop->arg3);
+         HReg dst = newVRegV(env);
+         addInstr(env, mk_vMOVsd_RR(argL, dst));
+         addInstr(env, X86Instr_Sse32FLo(op, argR, dst));
+         return dst;
+      }
+
+      case Iop_Mul64F0x2:   op = Xsse_MULF;   goto do_64F0x2_rounded;
+      case Iop_Sub64F0x2:   op = Xsse_SUBF;   goto do_64F0x2_rounded;
+      case Iop_Add64F0x2:   op = Xsse_ADDF;   goto do_64F0x2_rounded;
+      case Iop_Div64F0x2:   op = Xsse_DIVF;   goto do_64F0x2_rounded;
+      do_64F0x2_rounded: {
+         HReg argL = iselVecExpr(env, triop->arg2);
+         HReg argR = iselVecExpr(env, triop->arg3);
+         HReg dst = newVRegV(env);
+         REQUIRE_SSE2;
+         addInstr(env, mk_vMOVsd_RR(argL, dst));
+         addInstr(env, X86Instr_Sse64FLo(op, argR, dst));
+         return dst;
+      }
+
+      default:
+         break;
+   } /* switch (triop->op) */
+   } /* if (e->tag == Iex_Triop) */
 
    if (e->tag == Iex_ITE) { // VFD
       HReg r1  = iselVecExpr(env, e->Iex.ITE.iftrue);

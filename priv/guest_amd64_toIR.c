@@ -46,10 +46,9 @@
  
    * no FP exceptions, except for handling stack over/underflow
  
-   * FP rounding mode observed only for float->int conversions and
-     int->float conversions which could lose accuracy, and for
-     float-to-float rounding.  For all other operations,
-     round-to-nearest is used, regardless.
+   * FP rounding mode is observed, but note that 387 math is still
+     simulated at 64 (not 80) bits, so for most programs where it
+     matters, compiling for SSE math (64 bits) is the only option.
  
    * FP sin/cos/tan/sincos: C2 flag is always cleared.  IOW the
      simulation claims the argument is in-range (-2^63 <= arg <= 2^63)
@@ -249,9 +248,26 @@ static IRExpr* unop ( IROp op, IRExpr* a )
    return IRExpr_Unop(op, a);
 }
 
+static IRExpr* unop_maybe_round ( IROp op, IRExpr* round, IRExpr* a )
+{
+   if (round)
+      return IRExpr_Binop(op, round, a);
+   else
+      return IRExpr_Unop(op, a);
+}
+
 static IRExpr* binop ( IROp op, IRExpr* a1, IRExpr* a2 )
 {
    return IRExpr_Binop(op, a1, a2);
+}
+
+static IRExpr* binop_maybe_round ( IROp op, IRExpr* round,
+                                   IRExpr* a1, IRExpr* a2 )
+{
+   if (round)
+      return IRExpr_Triop(op, round, a1, a2);
+   else
+      return IRExpr_Binop(op, a1, a2);
 }
 
 static IRExpr* triop ( IROp op, IRExpr* a1, IRExpr* a2, IRExpr* a3 )
@@ -4893,12 +4909,6 @@ static IRExpr* /* :: Ity_I32 */ get_roundingmode ( void )
    return binop( Iop_And32, get_fpround(), mkU32(3) );
 }
 
-static IRExpr* /* :: Ity_I32 */ get_FAKE_roundingmode ( void )
-{
-   return mkU32(Irrm_NEAREST);
-}
-
-
 /* --------- Get/set FP register tag bytes. --------- */
 
 /* Given i, and some expression e, generate 'ST_TAG(i) = e'. */
@@ -5037,20 +5047,19 @@ void fp_do_op_mem_ST_0 ( IRTemp addr, const HChar* op_txt, HChar* dis_buf,
    if (dbl) {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 get_ST(0), 
                 loadLE(Ity_F64,mkexpr(addr))
          ));
    } else {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 get_ST(0), 
                 unop(Iop_F32toF64, loadLE(Ity_F32,mkexpr(addr)))
          ));
    }
 }
-
 
 /* ST(0) = mem64/32(addr) `op` ST(0)
    Need to check ST(0)'s tag on read, but not on write.
@@ -5063,14 +5072,14 @@ void fp_do_oprev_mem_ST_0 ( IRTemp addr, const HChar* op_txt, HChar* dis_buf,
    if (dbl) {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 loadLE(Ity_F64,mkexpr(addr)),
                 get_ST(0)
          ));
    } else {
       put_ST_UNCHECKED(0, 
          triop( op, 
-                get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                get_roundingmode(),
                 unop(Iop_F32toF64, loadLE(Ity_F32,mkexpr(addr))),
                 get_ST(0)
          ));
@@ -5089,7 +5098,7 @@ void fp_do_op_ST_ST ( const HChar* op_txt, IROp op, UInt st_src, UInt st_dst,
    put_ST_UNCHECKED( 
       st_dst, 
       triop( op, 
-             get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+             get_roundingmode(),
              get_ST(st_dst), 
              get_ST(st_src) ) 
    );
@@ -5108,7 +5117,7 @@ void fp_do_oprev_ST_ST ( const HChar* op_txt, IROp op, UInt st_src, UInt st_dst,
    put_ST_UNCHECKED( 
       st_dst, 
       triop( op, 
-             get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+             get_roundingmode(),
              get_ST(st_src), 
              get_ST(st_dst) ) 
    );
@@ -5619,7 +5628,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("f2xm1\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_2xm1F64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                break;
 
@@ -5627,7 +5636,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fyl2x\n");
                put_ST_UNCHECKED(1, 
                   triop(Iop_Yl2xF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(1), 
                         get_ST(0)));
                fp_pop();
@@ -5637,7 +5646,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("ftan\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_TanF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                fp_push();
                put_ST(0, IRExpr_Const(IRConst_F64(1.0)));
@@ -5648,7 +5657,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fpatan\n");
                put_ST_UNCHECKED(1, 
                   triop(Iop_AtanF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(1), 
                         get_ST(0)));
                fp_pop();
@@ -5700,13 +5709,13 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                assign( a2, get_ST(1) );
                put_ST_UNCHECKED(0,
                   triop(Iop_PRem1F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)));
                put_C3210(
                   unop(Iop_32Uto64,
                   triop(Iop_PRem1C3210F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)) ));
                break;
@@ -5727,13 +5736,13 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                assign( a2, get_ST(1) );
                put_ST_UNCHECKED(0,
                   triop(Iop_PRemF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)));
                put_C3210(
                   unop(Iop_32Uto64,
                   triop(Iop_PRemC3210F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1),
                         mkexpr(a2)) ));
                break;
@@ -5743,7 +5752,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fyl2xp1\n");
                put_ST_UNCHECKED(1, 
                   triop(Iop_Yl2xp1F64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(1), 
                         get_ST(0)));
                fp_pop();
@@ -5753,7 +5762,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fsqrt\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_SqrtF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                break;
 
@@ -5763,12 +5772,12 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fsincos\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_SinF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1)));
                fp_push();
                put_ST(0, 
                   binop(Iop_CosF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         mkexpr(a1)));
                clear_C2(); /* HACK */
                break;
@@ -5784,7 +5793,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fscale\n");
                put_ST_UNCHECKED(0, 
                   triop(Iop_ScaleF64,
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0), 
                         get_ST(1)));
                break;
@@ -5793,7 +5802,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fsin\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_SinF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                clear_C2(); /* HACK */
                break;
@@ -5802,7 +5811,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
                DIP("fcos\n");
                put_ST_UNCHECKED(0, 
                   binop(Iop_CosF64, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0)));
                clear_C2(); /* HACK */
                break;
@@ -5859,7 +5868,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_fop_m32:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0),
                         unop(Iop_I32StoF64,
                              loadLE(Ity_I32, mkexpr(addr)))));
@@ -5868,7 +5877,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_foprev_m32:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         unop(Iop_I32StoF64,
                              loadLE(Ity_I32, mkexpr(addr))),
                         get_ST(0)));
@@ -6572,7 +6581,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_fop_m16:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         get_ST(0),
                         unop(Iop_I32StoF64,
                              unop(Iop_16Sto32, 
@@ -6582,7 +6591,7 @@ ULong dis_FPU ( /*OUT*/Bool* decode_ok,
             do_foprev_m16:
                put_ST_UNCHECKED(0, 
                   triop(fop, 
-                        get_FAKE_roundingmode(), /* XXXROUNDINGFIXME */
+                        get_roundingmode(),
                         unop(Iop_I32StoF64,
                              unop(Iop_16Sto32, 
                                   loadLE(Ity_I16, mkexpr(addr)))),
@@ -8436,7 +8445,8 @@ static ULong dis_SSE_E_to_G_all_wrk (
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
                 const HChar* opname, IROp op,
-                Bool   invertG
+                Bool   invertG,
+                IRExpr* round
              )
 {
    HChar   dis_buf[50];
@@ -8448,7 +8458,7 @@ static ULong dis_SSE_E_to_G_all_wrk (
                 : getXMMReg(gregOfRexRM(pfx,rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
@@ -8457,7 +8467,7 @@ static ULong dis_SSE_E_to_G_all_wrk (
    } else {
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            loadLE(Ity_V128, mkexpr(addr))) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
@@ -8466,6 +8476,7 @@ static ULong dis_SSE_E_to_G_all_wrk (
    }
 }
 
+static IRExpr* /* :: Ity_I32 */ get_sse_roundingmode ( void );
 
 /* All lanes SSE binary operation, G = G `op` E. */
 
@@ -8474,7 +8485,15 @@ ULong dis_SSE_E_to_G_all ( VexAbiInfo* vbi,
                            Prefix pfx, Long delta, 
                            const HChar* opname, IROp op )
 {
-   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, False );
+   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, False, NULL );
+}
+static
+ULong dis_SSE_E_to_G_all_rnd ( VexAbiInfo* vbi,
+                               Prefix pfx, Long delta,
+                               const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, False,
+                                  get_sse_roundingmode() );
 }
 
 /* All lanes SSE binary operation, G = (not G) `op` E. */
@@ -8484,15 +8503,16 @@ ULong dis_SSE_E_to_G_all_invG ( VexAbiInfo* vbi,
                                 Prefix pfx, Long delta, 
                                 const HChar* opname, IROp op )
 {
-   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, True );
+   return dis_SSE_E_to_G_all_wrk( vbi, pfx, delta, opname, op, True, NULL );
 }
 
 
 /* Lowest 32-bit lane only SSE binary operation, G = G `op` E. */
 
-static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
+static ULong dis_SSE_E_to_G_lo32_1 ( VexAbiInfo* vbi,
                                    Prefix pfx, Long delta, 
-                                   const HChar* opname, IROp op )
+                                   const HChar* opname, IROp op,
+                                   IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -8501,7 +8521,7 @@ static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
    IRExpr* gpart = getXMMReg(gregOfRexRM(pfx,rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
@@ -8515,20 +8535,34 @@ static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
       assign( epart, unop( Iop_32UtoV128,
                            loadLE(Ity_I32, mkexpr(addr))) );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart, mkexpr(epart)) );
+                 binop_maybe_round(op, round, gpart, mkexpr(epart)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
       return delta+alen;
    }
 }
+static ULong dis_SSE_E_to_G_lo32 ( VexAbiInfo* vbi,
+                                   Prefix pfx, Long delta,
+                                   const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo32_1(vbi, pfx, delta, opname, op, NULL);
+}
+static ULong dis_SSE_E_to_G_lo32_rnd ( VexAbiInfo* vbi,
+                                       Prefix pfx, Long delta,
+                                       const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo32_1(vbi, pfx, delta, opname, op,
+                                get_sse_roundingmode());
+}
 
 
 /* Lower 64-bit lane only SSE binary operation, G = G `op` E. */
 
-static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
+static ULong dis_SSE_E_to_G_lo64_1 ( VexAbiInfo* vbi,
                                    Prefix pfx, Long delta, 
-                                   const HChar* opname, IROp op )
+                                   const HChar* opname, IROp op,
+                                   IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -8537,7 +8571,7 @@ static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
    IRExpr* gpart = getXMMReg(gregOfRexRM(pfx,rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
@@ -8551,21 +8585,34 @@ static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
       assign( epart, unop( Iop_64UtoV128,
                            loadLE(Ity_I64, mkexpr(addr))) );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 binop(op, gpart, mkexpr(epart)) );
+                 binop_maybe_round(op, round, gpart, mkexpr(epart)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
       return delta+alen;
    }
 }
-
+static ULong dis_SSE_E_to_G_lo64 ( VexAbiInfo* vbi,
+                                   Prefix pfx, Long delta,
+                                   const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo64_1(vbi, pfx, delta, opname, op, NULL);
+}
+static ULong dis_SSE_E_to_G_lo64_rnd ( VexAbiInfo* vbi,
+                                       Prefix pfx, Long delta,
+                                       const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo64_1(vbi, pfx, delta, opname, op,
+                                get_sse_roundingmode());
+}
 
 /* All lanes unary SSE operation, G = op(E). */
 
-static ULong dis_SSE_E_to_G_unary_all ( 
+static ULong dis_SSE_E_to_G_unary_all_1 (
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
-                const HChar* opname, IROp op
+                const HChar* opname, IROp op,
+                IRExpr* round
              )
 {
    HChar   dis_buf[50];
@@ -8574,7 +8621,7 @@ static ULong dis_SSE_E_to_G_unary_all (
    UChar   rm = getUChar(delta);
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 unop(op, getXMMReg(eregOfRexRM(pfx,rm))) );
+                 unop_maybe_round(op, round, getXMMReg(eregOfRexRM(pfx,rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8582,21 +8629,38 @@ static ULong dis_SSE_E_to_G_unary_all (
    } else {
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       putXMMReg( gregOfRexRM(pfx,rm), 
-                 unop(op, loadLE(Ity_V128, mkexpr(addr))) );
+                 unop_maybe_round(op, round, loadLE(Ity_V128, mkexpr(addr))) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
       return delta+alen;
    }
 }
-
+static ULong dis_SSE_E_to_G_unary_all (
+                VexAbiInfo* vbi,
+                Prefix pfx, Long delta,
+                const HChar* opname, IROp op
+             )
+{
+   return dis_SSE_E_to_G_unary_all_1(vbi, pfx, delta, opname, op, NULL);
+}
+static ULong dis_SSE_E_to_G_unary_all_rnd (
+                VexAbiInfo* vbi,
+                Prefix pfx, Long delta,
+                const HChar* opname, IROp op
+             )
+{
+   return dis_SSE_E_to_G_unary_all_1(vbi, pfx, delta, opname, op,
+                                     get_sse_roundingmode());
+}
 
 /* Lowest 32-bit lane only unary SSE operation, G = op(E). */
 
-static ULong dis_SSE_E_to_G_unary_lo32 ( 
+static ULong dis_SSE_E_to_G_unary_lo32_1 (
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
-                const HChar* opname, IROp op
+                const HChar* opname, IROp op,
+                IRExpr* round
              )
 {
    /* First we need to get the old G value and patch the low 32 bits
@@ -8615,7 +8679,8 @@ static ULong dis_SSE_E_to_G_unary_lo32 (
               binop( Iop_SetV128lo32,
                      mkexpr(oldG0),
                      getXMMRegLane32(eregOfRexRM(pfx,rm), 0)) );
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRexRM(pfx,rm),
+                 unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8626,21 +8691,39 @@ static ULong dis_SSE_E_to_G_unary_lo32 (
               binop( Iop_SetV128lo32,
                      mkexpr(oldG0),
                      loadLE(Ity_I32, mkexpr(addr)) ));
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRexRM(pfx,rm),
+                 unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
       return delta+alen;
    }
 }
-
+static ULong dis_SSE_E_to_G_unary_lo32 (
+                VexAbiInfo* vbi,
+                Prefix pfx, Long delta,
+                const HChar* opname, IROp op
+             )
+{
+   return dis_SSE_E_to_G_unary_lo32_1(vbi, pfx, delta, opname, op, NULL);
+}
+static ULong dis_SSE_E_to_G_unary_lo32_rnd (
+                VexAbiInfo* vbi,
+                Prefix pfx, Long delta,
+                const HChar* opname, IROp op
+             )
+{
+   return dis_SSE_E_to_G_unary_lo32_1(vbi, pfx, delta, opname, op,
+                                      get_sse_roundingmode());
+}
 
 /* Lowest 64-bit lane only unary SSE operation, G = op(E). */
 
-static ULong dis_SSE_E_to_G_unary_lo64 ( 
+static ULong dis_SSE_E_to_G_unary_lo64_1 (
                 VexAbiInfo* vbi,
                 Prefix pfx, Long delta, 
-                const HChar* opname, IROp op
+                const HChar* opname, IROp op,
+                IRExpr* round
              )
 {
    /* First we need to get the old G value and patch the low 64 bits
@@ -8659,7 +8742,8 @@ static ULong dis_SSE_E_to_G_unary_lo64 (
               binop( Iop_SetV128lo64,
                      mkexpr(oldG0),
                      getXMMRegLane64(eregOfRexRM(pfx,rm), 0)) );
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRexRM(pfx,rm),
+                 unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRexRM(pfx,rm)),
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
@@ -8670,14 +8754,23 @@ static ULong dis_SSE_E_to_G_unary_lo64 (
               binop( Iop_SetV128lo64,
                      mkexpr(oldG0),
                      loadLE(Ity_I64, mkexpr(addr)) ));
-      putXMMReg( gregOfRexRM(pfx,rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRexRM(pfx,rm),
+                 unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRexRM(pfx,rm)) );
       return delta+alen;
    }
 }
-
+static ULong dis_SSE_E_to_G_unary_lo64_rnd (
+                VexAbiInfo* vbi,
+                Prefix pfx, Long delta,
+                const HChar* opname, IROp op
+             )
+{
+   return dis_SSE_E_to_G_unary_lo64_1(vbi, pfx, delta, opname, op,
+                                      get_sse_roundingmode());
+}
 
 /* SSE integer binary operation:
       G = G `op` E   (eLeft == False)
@@ -10862,9 +10955,11 @@ static IRTemp math_ADDSUBPD_128 ( IRTemp dV, IRTemp sV )
    IRTemp subV = newTemp(Ity_V128);
    IRTemp a1   = newTemp(Ity_I64);
    IRTemp s0   = newTemp(Ity_I64);
+   IRTemp rm   = newTemp(Ity_I32);
 
-   assign( addV, binop(Iop_Add64Fx2, mkexpr(dV), mkexpr(sV)) );
-   assign( subV, binop(Iop_Sub64Fx2, mkexpr(dV), mkexpr(sV)) );
+   assign( rm, get_sse_roundingmode() );
+   assign( addV, triop(Iop_Add64Fx2, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
+   assign( subV, triop(Iop_Sub64Fx2, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
 
    assign( a1, unop(Iop_V128HIto64, mkexpr(addV) ));
    assign( s0, unop(Iop_V128to64,   mkexpr(subV) ));
@@ -10880,10 +10975,12 @@ static IRTemp math_ADDSUBPD_256 ( IRTemp dV, IRTemp sV )
    IRTemp a3, a2, a1, a0, s3, s2, s1, s0;
    IRTemp addV = newTemp(Ity_V256);
    IRTemp subV = newTemp(Ity_V256);
+   IRTemp rm   = newTemp(Ity_I32);
    a3 = a2 = a1 = a0 = s3 = s2 = s1 = s0 = IRTemp_INVALID;
 
-   assign( addV, binop(Iop_Add64Fx4, mkexpr(dV), mkexpr(sV)) );
-   assign( subV, binop(Iop_Sub64Fx4, mkexpr(dV), mkexpr(sV)) );
+   assign( rm, get_sse_roundingmode() );
+   assign( addV, triop(Iop_Add64Fx4, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
+   assign( subV, triop(Iop_Sub64Fx4, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
 
    breakupV256to64s( addV, &a3, &a2, &a1, &a0 );
    breakupV256to64s( subV, &s3, &s2, &s1, &s0 );
@@ -10899,10 +10996,12 @@ static IRTemp math_ADDSUBPS_128 ( IRTemp dV, IRTemp sV )
    IRTemp a3, a2, a1, a0, s3, s2, s1, s0;
    IRTemp addV = newTemp(Ity_V128);
    IRTemp subV = newTemp(Ity_V128);
+   IRTemp rm   = newTemp(Ity_I32);
    a3 = a2 = a1 = a0 = s3 = s2 = s1 = s0 = IRTemp_INVALID;
 
-   assign( addV, binop(Iop_Add32Fx4, mkexpr(dV), mkexpr(sV)) );
-   assign( subV, binop(Iop_Sub32Fx4, mkexpr(dV), mkexpr(sV)) );
+   assign( rm, get_sse_roundingmode() );
+   assign( addV, triop(Iop_Add32Fx4, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
+   assign( subV, triop(Iop_Sub32Fx4, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
 
    breakupV128to32s( addV, &a3, &a2, &a1, &a0 );
    breakupV128to32s( subV, &s3, &s2, &s1, &s0 );
@@ -10919,11 +11018,13 @@ static IRTemp math_ADDSUBPS_256 ( IRTemp dV, IRTemp sV )
    IRTemp s7, s6, s5, s4, s3, s2, s1, s0;
    IRTemp addV = newTemp(Ity_V256);
    IRTemp subV = newTemp(Ity_V256);
+   IRTemp rm   = newTemp(Ity_I32);
    a7 = a6 = a5 = a4 = a3 = a2 = a1 = a0 = IRTemp_INVALID;
    s7 = s6 = s5 = s4 = s3 = s2 = s1 = s0 = IRTemp_INVALID;
 
-   assign( addV, binop(Iop_Add32Fx8, mkexpr(dV), mkexpr(sV)) );
-   assign( subV, binop(Iop_Sub32Fx8, mkexpr(dV), mkexpr(sV)) );
+   assign( rm, get_sse_roundingmode() );
+   assign( addV, triop(Iop_Add32Fx8, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
+   assign( subV, triop(Iop_Sub32Fx8, mkexpr(rm), mkexpr(dV), mkexpr(sV)) );
 
    breakupV256to32s( addV, &a7, &a6, &a5, &a4, &a3, &a2, &a1, &a0 );
    breakupV256to32s( subV, &s7, &s6, &s5, &s4, &s3, &s2, &s1, &s0 );
@@ -12357,26 +12458,26 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x51:
       /* F3 0F 51 = SQRTSS -- approx sqrt 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_unary_lo32( vbi, pfx, delta, 
-                                            "sqrtss", Iop_Sqrt32F0x4 );
+         delta = dis_SSE_E_to_G_unary_lo32_rnd( vbi, pfx, delta,
+                                                "sqrtss", Iop_Sqrt32F0x4 );
          goto decode_success;
       }
       /* 0F 51 = SQRTPS -- approx sqrt 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_unary_all( vbi, pfx, delta, 
-                                           "sqrtps", Iop_Sqrt32Fx4 );
+         delta = dis_SSE_E_to_G_unary_all_rnd( vbi, pfx, delta,
+                                               "sqrtps", Iop_Sqrt32Fx4 );
          goto decode_success;
       }
       /* F2 0F 51 = SQRTSD -- approx sqrt 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_unary_lo64( vbi, pfx, delta, 
-                                            "sqrtsd", Iop_Sqrt64F0x2 );
+         delta = dis_SSE_E_to_G_unary_lo64_rnd( vbi, pfx, delta,
+                                                "sqrtsd", Iop_Sqrt64F0x2 );
          goto decode_success;
       }
       /* 66 0F 51 = SQRTPD -- approx sqrt 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_unary_all( vbi, pfx, delta, 
-                                           "sqrtpd", Iop_Sqrt64Fx2 );
+         delta = dis_SSE_E_to_G_unary_all_rnd( vbi, pfx, delta,
+                                               "sqrtpd", Iop_Sqrt64Fx2 );
          goto decode_success;
       }
       break;
@@ -12468,24 +12569,24 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x58:
       /* 0F 58 = ADDPS -- add 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "addps", Iop_Add32Fx4 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "addps", Iop_Add32Fx4 );
          goto decode_success;
       }
       /* F3 0F 58 = ADDSS -- add 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "addss", Iop_Add32F0x4 );
+         delta = dis_SSE_E_to_G_lo32_rnd( vbi, pfx, delta, "addss", Iop_Add32F0x4 );
          goto decode_success;
       }
       /* F2 0F 58 = ADDSD -- add 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) 
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "addsd", Iop_Add64F0x2 );
+         delta = dis_SSE_E_to_G_lo64_rnd( vbi, pfx, delta, "addsd", Iop_Add64F0x2 );
          goto decode_success;
       }
       /* 66 0F 58 = ADDPD -- add 32Fx4 from R/M to R */
       if (have66noF2noF3(pfx) 
           && (sz == 2 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "addpd", Iop_Add64Fx2 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "addpd", Iop_Add64Fx2 );
          goto decode_success;
       }
       break;
@@ -12494,23 +12595,23 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
       /* F2 0F 59 = MULSD -- mul 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) 
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "mulsd", Iop_Mul64F0x2 );
+         delta = dis_SSE_E_to_G_lo64_rnd( vbi, pfx, delta, "mulsd", Iop_Mul64F0x2 );
          goto decode_success;
       }
       /* F3 0F 59 = MULSS -- mul 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "mulss", Iop_Mul32F0x4 );
+         delta = dis_SSE_E_to_G_lo32_rnd( vbi, pfx, delta, "mulss", Iop_Mul32F0x4 );
          goto decode_success;
       }
       /* 0F 59 = MULPS -- mul 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "mulps", Iop_Mul32Fx4 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "mulps", Iop_Mul32Fx4 );
          goto decode_success;
       }
       /* 66 0F 59 = MULPD -- mul 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) 
           && (sz == 2 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "mulpd", Iop_Mul64Fx2 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "mulpd", Iop_Mul64Fx2 );
          goto decode_success;
       }
       break;
@@ -12607,23 +12708,23 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x5C:
       /* F3 0F 5C = SUBSS -- sub 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "subss", Iop_Sub32F0x4 );
+         delta = dis_SSE_E_to_G_lo32_rnd( vbi, pfx, delta, "subss", Iop_Sub32F0x4 );
          goto decode_success;
       }
       /* F2 0F 5C = SUBSD -- sub 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) 
           && (sz == 4 || /* ignore redundant REX.W */ sz == 8)) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "subsd", Iop_Sub64F0x2 );
+         delta = dis_SSE_E_to_G_lo64_rnd( vbi, pfx, delta, "subsd", Iop_Sub64F0x2 );
          goto decode_success;
       }
       /* 0F 5C = SUBPS -- sub 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "subps", Iop_Sub32Fx4 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "subps", Iop_Sub32Fx4 );
          goto decode_success;
       }
       /* 66 0F 5C = SUBPD -- sub 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "subpd", Iop_Sub64Fx2 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "subpd", Iop_Sub64Fx2 );
          goto decode_success;
       }
       break;
@@ -12654,22 +12755,22 @@ Long dis_ESC_0F__SSE2 ( Bool* decode_OK,
    case 0x5E:
       /* F2 0F 5E = DIVSD -- div 64F0x2 from R/M to R */
       if (haveF2no66noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo64( vbi, pfx, delta, "divsd", Iop_Div64F0x2 );
+         delta = dis_SSE_E_to_G_lo64_rnd( vbi, pfx, delta, "divsd", Iop_Div64F0x2 );
          goto decode_success;
       }
       /* 0F 5E = DIVPS -- div 32Fx4 from R/M to R */
       if (haveNo66noF2noF3(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "divps", Iop_Div32Fx4 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "divps", Iop_Div32Fx4 );
          goto decode_success;
       }
       /* F3 0F 5E = DIVSS -- div 32F0x4 from R/M to R */
       if (haveF3no66noF2(pfx) && sz == 4) {
-         delta = dis_SSE_E_to_G_lo32( vbi, pfx, delta, "divss", Iop_Div32F0x4 );
+         delta = dis_SSE_E_to_G_lo32_rnd( vbi, pfx, delta, "divss", Iop_Div32F0x4 );
          goto decode_success;
       }
       /* 66 0F 5E = DIVPD -- div 64Fx2 from R/M to R */
       if (have66noF2noF3(pfx) && sz == 2) {
-         delta = dis_SSE_E_to_G_all( vbi, pfx, delta, "divpd", Iop_Div64Fx2 );
+         delta = dis_SSE_E_to_G_all_rnd( vbi, pfx, delta, "divpd", Iop_Div64Fx2 );
          goto decode_success;
       }
       break;
@@ -14485,7 +14586,8 @@ static IRTemp math_HADDPS_128 ( IRTemp dV, IRTemp sV, Bool isAdd )
    assign( rightV, mkV128from32s( s3, s1, d3, d1 ) );
 
    IRTemp res = newTemp(Ity_V128);
-   assign( res, binop(isAdd ? Iop_Add32Fx4 : Iop_Sub32Fx4, 
+   assign( res, triop(isAdd ? Iop_Add32Fx4 : Iop_Sub32Fx4,
+                              get_sse_roundingmode(),
                               mkexpr(leftV), mkexpr(rightV) ) );
    return res;
 }
@@ -14505,7 +14607,8 @@ static IRTemp math_HADDPD_128 ( IRTemp dV, IRTemp sV, Bool isAdd )
    assign( rightV, binop(Iop_64HLtoV128, mkexpr(s1), mkexpr(d1)) );
 
    IRTemp res = newTemp(Ity_V128);
-   assign( res, binop(isAdd ? Iop_Add64Fx2 : Iop_Sub64Fx2,
+   assign( res, triop(isAdd ? Iop_Add64Fx2 : Iop_Sub64Fx2,
+                              get_sse_roundingmode(),
                               mkexpr(leftV), mkexpr(rightV) ) );
    return res;
 }
@@ -18158,12 +18261,16 @@ static IRTemp math_DPPD_128 ( IRTemp src_vec, IRTemp dst_vec, UInt imm8 )
    UShort imm8_perms[4] = { 0x0000, 0x00FF, 0xFF00, 0xFFFF };
    IRTemp and_vec = newTemp(Ity_V128);
    IRTemp sum_vec = newTemp(Ity_V128);
+   IRTemp rmode   = newTemp(Ity_I32);
+   assign( rmode, get_sse_roundingmode() );
    assign( and_vec, binop( Iop_AndV128,
-                           binop( Iop_Mul64Fx2,
+                           triop( Iop_Mul64Fx2,
+                                  mkexpr(rmode),
                                   mkexpr(dst_vec), mkexpr(src_vec) ),
                            mkV128( imm8_perms[ ((imm8 >> 4) & 3) ] ) ) );
 
-   assign( sum_vec, binop( Iop_Add64F0x2,
+   assign( sum_vec, triop( Iop_Add64F0x2,
+                           mkexpr(rmode),
                            binop( Iop_InterleaveHI64x2,
                                   mkexpr(and_vec), mkexpr(and_vec) ),
                            binop( Iop_InterleaveLO64x2,
@@ -18183,6 +18290,7 @@ static IRTemp math_DPPS_128 ( IRTemp src_vec, IRTemp dst_vec, UInt imm8 )
    IRTemp tmp_prod_vec = newTemp(Ity_V128);
    IRTemp prod_vec     = newTemp(Ity_V128);
    IRTemp sum_vec      = newTemp(Ity_V128);
+   IRTemp rmode   = newTemp(Ity_I32);
    IRTemp v3, v2, v1, v0;
    v3 = v2 = v1 = v0   = IRTemp_INVALID;
    UShort imm8_perms[16] = { 0x0000, 0x000F, 0x00F0, 0x00FF, 0x0F00, 
@@ -18190,15 +18298,18 @@ static IRTemp math_DPPS_128 ( IRTemp src_vec, IRTemp dst_vec, UInt imm8 )
                              0xF0F0, 0xF0FF, 0xFF00, 0xFF0F, 0xFFF0,
                              0xFFFF };
 
+   assign( rmode, get_sse_roundingmode() );
    assign( tmp_prod_vec, 
            binop( Iop_AndV128, 
-                  binop( Iop_Mul32Fx4, mkexpr(dst_vec),
+                  triop( Iop_Mul32Fx4, mkexpr(rmode),
+                                       mkexpr(dst_vec),
                                        mkexpr(src_vec) ), 
                   mkV128( imm8_perms[((imm8 >> 4)& 15)] ) ) );
    breakupV128to32s( tmp_prod_vec, &v3, &v2, &v1, &v0 );
    assign( prod_vec, mkV128from32s( v3, v1, v2, v0 ) );
 
-   assign( sum_vec, binop( Iop_Add32Fx4,
+   assign( sum_vec, triop( Iop_Add32Fx4,
+                           mkexpr(rmode),
                            binop( Iop_InterleaveHI32x4, 
                                   mkexpr(prod_vec), mkexpr(prod_vec) ), 
                            binop( Iop_InterleaveLO32x4, 
@@ -18206,7 +18317,8 @@ static IRTemp math_DPPS_128 ( IRTemp src_vec, IRTemp dst_vec, UInt imm8 )
 
    IRTemp res = newTemp(Ity_V128);
    assign( res, binop( Iop_AndV128, 
-                       binop( Iop_Add32Fx4,
+                       triop( Iop_Add32Fx4,
+                              mkexpr(rmode),
                               binop( Iop_InterleaveHI32x4,
                                      mkexpr(sum_vec), mkexpr(sum_vec) ), 
                               binop( Iop_InterleaveLO32x4,
@@ -21608,14 +21720,15 @@ Long dis_ESC_0F3A (
 
 /* FIXME: common up with the _256_ version below? */
 static
-Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG (
+Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG_maybe_round (
         /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
         Prefix pfx, Long delta, const HChar* name,
         /* The actual operation.  Use either 'op' or 'opfn',
            but not both. */
         IROp op, IRTemp(*opFn)(IRTemp,IRTemp),
         Bool invertLeftArg,
-        Bool swapArgs
+        Bool swapArgs,
+        IRExpr* round
      )
 {
    UChar  modrm = getUChar(delta);
@@ -21649,8 +21762,10 @@ Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG (
    if (op != Iop_INVALID) {
       vassert(opFn == NULL);
       res = newTemp(Ity_V128);
-      assign(res, swapArgs ? binop(op, mkexpr(tSR), mkexpr(tSL))
-                           : binop(op, mkexpr(tSL), mkexpr(tSR)));
+      if (swapArgs)
+         assign(res, binop_maybe_round(op, round, mkexpr(tSR), mkexpr(tSL)));
+      else
+         assign(res, binop_maybe_round(op, round, mkexpr(tSL), mkexpr(tSR)));
    } else {
       vassert(opFn != NULL);
       res = swapArgs ? opFn(tSR, tSL) : opFn(tSL, tSR);
@@ -21662,6 +21777,39 @@ Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG (
    return delta;
 }
 
+static
+Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG (
+        /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
+        Prefix pfx, Long delta, const HChar* name,
+        /* The actual operation.  Use either 'op' or 'opfn',
+           but not both. */
+        IROp op, IRTemp(*opFn)(IRTemp,IRTemp),
+        Bool invertLeftArg,
+        Bool swapArgs
+     )
+{
+   return dis_VEX_NDS_128_AnySimdPfx_0F_WIG_maybe_round(
+           uses_vvvv, vbi, pfx, delta, name,
+           op, opFn, invertLeftArg, swapArgs,
+           NULL/*round*/ );
+}
+
+static
+Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG_rnd (
+        /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
+        Prefix pfx, Long delta, const HChar* name,
+        /* The actual operation.  Use either 'op' or 'opfn',
+           but not both. */
+        IROp op, IRTemp(*opFn)(IRTemp,IRTemp),
+        Bool invertLeftArg,
+        Bool swapArgs
+     )
+{
+   return dis_VEX_NDS_128_AnySimdPfx_0F_WIG_maybe_round(
+           uses_vvvv, vbi, pfx, delta, name,
+           op, opFn, invertLeftArg, swapArgs,
+           get_sse_roundingmode() );
+}
 
 /* Handle a VEX_NDS_128_66_0F_WIG (3-addr) insn, with a simple IROp
    for the operation, no inversion of the left arg, and no swapping of
@@ -21674,7 +21822,7 @@ Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG_simple (
      )
 {
    return dis_VEX_NDS_128_AnySimdPfx_0F_WIG(
-             uses_vvvv, vbi, pfx, delta, name, op, NULL, False, False);
+           uses_vvvv, vbi, pfx, delta, name, op, NULL, False, False );
 }
 
 
@@ -21688,9 +21836,22 @@ Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG_complex (
         IRTemp(*opFn)(IRTemp,IRTemp)
      )
 {
-   return dis_VEX_NDS_128_AnySimdPfx_0F_WIG(
+   return dis_VEX_NDS_128_AnySimdPfx_0F_WIG_maybe_round(
              uses_vvvv, vbi, pfx, delta, name,
-             Iop_INVALID, opFn, False, False );
+             Iop_INVALID, opFn, False, False,
+             NULL/*round*/ );
+}
+static
+Long dis_VEX_NDS_128_AnySimdPfx_0F_WIG_complex_rnd (
+        /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
+        Prefix pfx, Long delta, const HChar* name,
+        IRTemp(*opFn)(IRTemp,IRTemp)
+     )
+{
+   return dis_VEX_NDS_128_AnySimdPfx_0F_WIG_maybe_round(
+             uses_vvvv, vbi, pfx, delta, name,
+             Iop_INVALID, opFn, False, False,
+             get_sse_roundingmode() );
 }
 
 
@@ -22076,10 +22237,11 @@ Long dis_AVX256_shiftE_to_V_imm( Prefix pfx,
    The specified op must be of the 64F0x2 kind, so that it
    copies the upper half of the left operand to the result.
 */
-static Long dis_AVX128_E_V_to_G_lo64 ( /*OUT*/Bool* uses_vvvv,
-                                       VexAbiInfo* vbi,
-                                       Prefix pfx, Long delta, 
-                                       const HChar* opname, IROp op )
+static Long dis_AVX128_E_V_to_G_lo64_1 ( /*OUT*/Bool* uses_vvvv,
+                                         VexAbiInfo* vbi,
+                                         Prefix pfx, Long delta,
+                                         const HChar* opname, IROp op,
+                                         IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -22090,7 +22252,7 @@ static Long dis_AVX128_E_V_to_G_lo64 ( /*OUT*/Bool* uses_vvvv,
    IRExpr* vpart = getXMMReg(rV);
    if (epartIsReg(rm)) {
       UInt rE = eregOfRexRM(pfx,rm);
-      putXMMReg( rG, binop(op, vpart, getXMMReg(rE)) );
+      putXMMReg( rG, binop_maybe_round(op, round, vpart, getXMMReg(rE)) );
       DIP("%s %s,%s,%s\n", opname,
           nameXMMReg(rE), nameXMMReg(rV), nameXMMReg(rG));
       delta = delta+1;
@@ -22101,7 +22263,7 @@ static Long dis_AVX128_E_V_to_G_lo64 ( /*OUT*/Bool* uses_vvvv,
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       assign( epart, unop( Iop_64UtoV128,
                            loadLE(Ity_I64, mkexpr(addr))) );
-      putXMMReg( rG, binop(op, vpart, mkexpr(epart)) );
+      putXMMReg( rG, binop_maybe_round(op, round, vpart, mkexpr(epart)) );
       DIP("%s %s,%s,%s\n", opname,
           dis_buf, nameXMMReg(rV), nameXMMReg(rG));
       delta = delta+alen;
@@ -22111,6 +22273,29 @@ static Long dis_AVX128_E_V_to_G_lo64 ( /*OUT*/Bool* uses_vvvv,
    return delta;
 }
 
+static Long dis_AVX128_E_V_to_G_lo64_rnd ( /*OUT*/Bool* uses_vvvv,
+                                           VexAbiInfo* vbi,
+                                           Prefix pfx, Long delta,
+                                           const HChar* opname, IROp op )
+{
+        return dis_AVX128_E_V_to_G_lo64_1( uses_vvvv,
+                                           vbi, pfx, delta,
+                                           opname, op,
+                                           get_sse_roundingmode() );
+}
+
+static Long dis_AVX128_E_V_to_G_lo64 ( /*OUT*/Bool* uses_vvvv,
+                                       VexAbiInfo* vbi,
+                                       Prefix pfx, Long delta,
+                                       const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_V_to_G_lo64_1( uses_vvvv,
+                                      vbi, pfx, delta,
+                                      opname, op,
+                                      NULL );
+}
+
+
 
 /* Lower 64-bit lane only AVX128 unary operation:
    G[63:0]    = op(E[63:0])
@@ -22119,7 +22304,7 @@ static Long dis_AVX128_E_V_to_G_lo64 ( /*OUT*/Bool* uses_vvvv,
    The specified op must be of the 64F0x2 kind, so that it
    copies the upper half of the operand to the result.
 */
-static Long dis_AVX128_E_V_to_G_lo64_unary ( /*OUT*/Bool* uses_vvvv,
+static Long dis_AVX128_E_V_to_G_lo64_unary_rnd ( /*OUT*/Bool* uses_vvvv,
                                              VexAbiInfo* vbi,
                                              Prefix pfx, Long delta, 
                                              const HChar* opname, IROp op )
@@ -22153,7 +22338,8 @@ static Long dis_AVX128_E_V_to_G_lo64_unary ( /*OUT*/Bool* uses_vvvv,
           binop(Iop_SetV128lo64,
                 getXMMReg(rV), mkexpr(e64)));
    /* and apply op to it */
-   putYMMRegLoAndZU( rG, unop(op, mkexpr(arg)) );
+   IRExpr *round = get_sse_roundingmode();
+   putYMMRegLoAndZU( rG, binop(op, round, mkexpr(arg)) );
    *uses_vvvv = True;
    return delta;
 }
@@ -22166,10 +22352,11 @@ static Long dis_AVX128_E_V_to_G_lo64_unary ( /*OUT*/Bool* uses_vvvv,
    The specified op must be of the 32F0x4 kind, so that it
    copies the upper 3/4 of the operand to the result.
 */
-static Long dis_AVX128_E_V_to_G_lo32_unary ( /*OUT*/Bool* uses_vvvv,
-                                             VexAbiInfo* vbi,
-                                             Prefix pfx, Long delta, 
-                                             const HChar* opname, IROp op )
+static Long dis_AVX128_E_V_to_G_lo32_unary_1 ( /*OUT*/Bool* uses_vvvv,
+                                               VexAbiInfo* vbi,
+                                               Prefix pfx, Long delta,
+                                               const HChar* opname, IROp op,
+                                               IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -22200,11 +22387,30 @@ static Long dis_AVX128_E_V_to_G_lo32_unary ( /*OUT*/Bool* uses_vvvv,
           binop(Iop_SetV128lo32,
                 getXMMReg(rV), mkexpr(e32)));
    /* and apply op to it */
-   putYMMRegLoAndZU( rG, unop(op, mkexpr(arg)) );
+   putYMMRegLoAndZU( rG, unop_maybe_round(op, round, mkexpr(arg)) );
    *uses_vvvv = True;
    return delta;
 }
-
+static Long dis_AVX128_E_V_to_G_lo32_unary_rnd ( /*OUT*/Bool* uses_vvvv,
+                                                 VexAbiInfo* vbi,
+                                                 Prefix pfx, Long delta,
+                                                 const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_V_to_G_lo32_unary_1(uses_vvvv, vbi,
+                                           pfx, delta,
+                                           opname, op,
+                                           get_sse_roundingmode());
+}
+static Long dis_AVX128_E_V_to_G_lo32_unary ( /*OUT*/Bool* uses_vvvv,
+                                             VexAbiInfo* vbi,
+                                             Prefix pfx, Long delta,
+                                             const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_V_to_G_lo32_unary_1(uses_vvvv, vbi,
+                                           pfx, delta,
+                                           opname, op,
+                                           NULL);
+}
 
 /* Lower 32-bit lane only AVX128 binary operation:
    G[31:0]    = V[31:0] `op` E[31:0]
@@ -22213,10 +22419,11 @@ static Long dis_AVX128_E_V_to_G_lo32_unary ( /*OUT*/Bool* uses_vvvv,
    The specified op must be of the 32F0x4 kind, so that it
    copies the upper 3/4 of the left operand to the result.
 */
-static Long dis_AVX128_E_V_to_G_lo32 ( /*OUT*/Bool* uses_vvvv,
-                                       VexAbiInfo* vbi,
-                                       Prefix pfx, Long delta, 
-                                       const HChar* opname, IROp op )
+static Long dis_AVX128_E_V_to_G_lo32_1 ( /*OUT*/Bool* uses_vvvv,
+                                         VexAbiInfo* vbi,
+                                         Prefix pfx, Long delta,
+                                         const HChar* opname, IROp op,
+                                         IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -22227,7 +22434,7 @@ static Long dis_AVX128_E_V_to_G_lo32 ( /*OUT*/Bool* uses_vvvv,
    IRExpr* vpart = getXMMReg(rV);
    if (epartIsReg(rm)) {
       UInt rE = eregOfRexRM(pfx,rm);
-      putXMMReg( rG, binop(op, vpart, getXMMReg(rE)) );
+      putXMMReg( rG, binop_maybe_round(op, round, vpart, getXMMReg(rE)) );
       DIP("%s %s,%s,%s\n", opname,
           nameXMMReg(rE), nameXMMReg(rV), nameXMMReg(rG));
       delta = delta+1;
@@ -22238,7 +22445,7 @@ static Long dis_AVX128_E_V_to_G_lo32 ( /*OUT*/Bool* uses_vvvv,
       addr = disAMode ( &alen, vbi, pfx, delta, dis_buf, 0 );
       assign( epart, unop( Iop_32UtoV128,
                            loadLE(Ity_I32, mkexpr(addr))) );
-      putXMMReg( rG, binop(op, vpart, mkexpr(epart)) );
+      putXMMReg( rG, binop_maybe_round(op, round, vpart, mkexpr(epart)) );
       DIP("%s %s,%s,%s\n", opname,
           dis_buf, nameXMMReg(rV), nameXMMReg(rG));
       delta = delta+alen;
@@ -22246,6 +22453,26 @@ static Long dis_AVX128_E_V_to_G_lo32 ( /*OUT*/Bool* uses_vvvv,
    putYMMRegLane128( rG, 1, mkV128(0) );
    *uses_vvvv = True;
    return delta;
+}
+static Long dis_AVX128_E_V_to_G_lo32 ( /*OUT*/Bool* uses_vvvv,
+                                                   VexAbiInfo* vbi,
+                                                   Prefix pfx, Long delta,
+                                                   const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_V_to_G_lo32_1( uses_vvvv,
+                                      vbi, pfx, delta,
+                                      opname, op,
+                                      NULL );
+}
+static Long dis_AVX128_E_V_to_G_lo32_rnd ( /*OUT*/Bool* uses_vvvv,
+                                           VexAbiInfo* vbi,
+                                           Prefix pfx, Long delta,
+                                           const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_V_to_G_lo32_1( uses_vvvv,
+                                      vbi, pfx, delta,
+                                      opname, op,
+                                      get_sse_roundingmode() );
 }
 
 
@@ -22259,6 +22486,16 @@ static Long dis_AVX128_E_V_to_G ( /*OUT*/Bool* uses_vvvv,
                                   const HChar* opname, IROp op )
 {
    return dis_VEX_NDS_128_AnySimdPfx_0F_WIG(
+             uses_vvvv, vbi, pfx, delta, opname, op,
+             NULL, False/*!invertLeftArg*/, False/*!swapArgs*/
+   );
+}
+static Long dis_AVX128_E_V_to_G_rnd ( /*OUT*/Bool* uses_vvvv,
+                                      VexAbiInfo* vbi,
+                                      Prefix pfx, Long delta,
+                                      const HChar* opname, IROp op )
+{
+   return dis_VEX_NDS_128_AnySimdPfx_0F_WIG_rnd(
              uses_vvvv, vbi, pfx, delta, opname, op,
              NULL, False/*!invertLeftArg*/, False/*!swapArgs*/
    );
@@ -22482,10 +22719,11 @@ Long dis_AVX128_E_to_G_unary ( /*OUT*/Bool* uses_vvvv,
 
 /* Handles AVX128 unary E-to-G all-lanes operations. */
 static
-Long dis_AVX128_E_to_G_unary_all ( /*OUT*/Bool* uses_vvvv,
-                                   VexAbiInfo* vbi,
-                                   Prefix pfx, Long delta, 
-                                   const HChar* opname, IROp op )
+Long dis_AVX128_E_to_G_unary_all_1 ( /*OUT*/Bool* uses_vvvv,
+                                     VexAbiInfo* vbi,
+                                     Prefix pfx, Long delta,
+                                     const HChar* opname, IROp op,
+                                     IRExpr *round )
 {
    HChar  dis_buf[50];
    Int    alen;
@@ -22504,22 +22742,42 @@ Long dis_AVX128_E_to_G_unary_all ( /*OUT*/Bool* uses_vvvv,
       delta += alen;
       DIP("%s %s,%s\n", opname, dis_buf, nameXMMReg(rG));
    }
-   putYMMRegLoAndZU( rG, unop(op, mkexpr(arg)) );
+   putYMMRegLoAndZU( rG, unop_maybe_round(op, round, mkexpr(arg)) );
    *uses_vvvv = False;
    return delta;
+}
+static
+Long dis_AVX128_E_to_G_unary_all_rnd ( /*OUT*/Bool* uses_vvvv,
+                                       VexAbiInfo* vbi,
+                                       Prefix pfx, Long delta,
+                                       const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_to_G_unary_all_1 ( uses_vvvv, vbi, pfx, delta,
+                                          opname, op,
+                                          get_sse_roundingmode() );
+}
+static
+Long dis_AVX128_E_to_G_unary_all ( /*OUT*/Bool* uses_vvvv,
+                                   VexAbiInfo* vbi,
+                                   Prefix pfx, Long delta,
+                                   const HChar* opname, IROp op )
+{
+   return dis_AVX128_E_to_G_unary_all_1 ( uses_vvvv, vbi, pfx, delta,
+                                          opname, op, NULL );
 }
 
 
 /* FIXME: common up with the _128_ version above? */
 static
-Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG (
+Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG_1 (
         /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
         Prefix pfx, Long delta, const HChar* name,
         /* The actual operation.  Use either 'op' or 'opfn',
            but not both. */
         IROp op, IRTemp(*opFn)(IRTemp,IRTemp),
         Bool invertLeftArg,
-        Bool swapArgs
+        Bool swapArgs,
+        IRExpr* round
      )
 {
    UChar  modrm = getUChar(delta);
@@ -22553,8 +22811,10 @@ Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG (
    if (op != Iop_INVALID) {
       vassert(opFn == NULL);
       res = newTemp(Ity_V256);
-      assign(res, swapArgs ? binop(op, mkexpr(tSR), mkexpr(tSL))
-                           : binop(op, mkexpr(tSL), mkexpr(tSR)));
+      if (swapArgs)
+         assign(res, binop_maybe_round(op, round, mkexpr(tSR), mkexpr(tSL)));
+      else
+         assign(res, binop_maybe_round(op, round, mkexpr(tSL), mkexpr(tSR)));
    } else {
       vassert(opFn != NULL);
       res = swapArgs ? opFn(tSR, tSL) : opFn(tSL, tSR);
@@ -22566,6 +22826,40 @@ Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG (
    return delta;
 }
 
+static
+Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG (
+        /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
+        Prefix pfx, Long delta, const HChar* name,
+        /* The actual operation.  Use either 'op' or 'opfn',
+           but not both. */
+        IROp op, IRTemp(*opFn)(IRTemp,IRTemp),
+        Bool invertLeftArg,
+        Bool swapArgs
+     )
+{
+   return dis_VEX_NDS_256_AnySimdPfx_0F_WIG_1 (
+        uses_vvvv, vbi, pfx, delta, name,
+        op, opFn, invertLeftArg, swapArgs,
+        NULL/*round*/
+   );
+}
+static
+Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG_rnd (
+        /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
+        Prefix pfx, Long delta, const HChar* name,
+        /* The actual operation.  Use either 'op' or 'opfn',
+           but not both. */
+        IROp op, IRTemp(*opFn)(IRTemp,IRTemp),
+        Bool invertLeftArg,
+        Bool swapArgs
+     )
+{
+   return dis_VEX_NDS_256_AnySimdPfx_0F_WIG_1 (
+        uses_vvvv, vbi, pfx, delta, name,
+        op, opFn, invertLeftArg, swapArgs,
+        get_sse_roundingmode()
+   );
+}
 
 /* All-lanes AVX256 binary operation:
    G[255:0] = V[255:0] `op` E[255:0]
@@ -22576,6 +22870,21 @@ static Long dis_AVX256_E_V_to_G ( /*OUT*/Bool* uses_vvvv,
                                   const HChar* opname, IROp op )
 {
    return dis_VEX_NDS_256_AnySimdPfx_0F_WIG(
+             uses_vvvv, vbi, pfx, delta, opname, op,
+             NULL, False/*!invertLeftArg*/, False/*!swapArgs*/
+   );
+}
+
+
+/* All-lanes AVX256 binary operation affected by rounding:
+   G[255:0] = V[255:0] `op` E[255:0]
+*/
+static Long dis_AVX256_E_V_to_G_rnd ( /*OUT*/Bool* uses_vvvv,
+                                      VexAbiInfo* vbi,
+                                      Prefix pfx, Long delta,
+                                      const HChar* opname, IROp op )
+{
+   return dis_VEX_NDS_256_AnySimdPfx_0F_WIG_rnd(
              uses_vvvv, vbi, pfx, delta, opname, op,
              NULL, False/*!invertLeftArg*/, False/*!swapArgs*/
    );
@@ -22608,6 +22917,17 @@ Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG_complex (
      )
 {
    return dis_VEX_NDS_256_AnySimdPfx_0F_WIG(
+             uses_vvvv, vbi, pfx, delta, name,
+             Iop_INVALID, opFn, False, False );
+}
+static
+Long dis_VEX_NDS_256_AnySimdPfx_0F_WIG_complex_rnd (
+        /*OUT*/Bool* uses_vvvv, VexAbiInfo* vbi,
+        Prefix pfx, Long delta, const HChar* name,
+        IRTemp(*opFn)(IRTemp,IRTemp)
+     )
+{
+   return dis_VEX_NDS_256_AnySimdPfx_0F_WIG_rnd(
              uses_vvvv, vbi, pfx, delta, name,
              Iop_INVALID, opFn, False, False );
 }
@@ -22648,10 +22968,11 @@ Long dis_AVX256_E_to_G_unary ( /*OUT*/Bool* uses_vvvv,
 
 /* Handles AVX256 unary E-to-G all-lanes operations. */
 static
-Long dis_AVX256_E_to_G_unary_all ( /*OUT*/Bool* uses_vvvv,
+Long dis_AVX256_E_to_G_unary_all_maybe_round ( /*OUT*/Bool* uses_vvvv,
                                    VexAbiInfo* vbi,
                                    Prefix pfx, Long delta, 
-                                   const HChar* opname, IROp op )
+                                               const HChar* opname, IROp op,
+                                               IRExpr *round )
 {
    HChar  dis_buf[50];
    Int    alen;
@@ -22670,9 +22991,33 @@ Long dis_AVX256_E_to_G_unary_all ( /*OUT*/Bool* uses_vvvv,
       delta += alen;
       DIP("%s %s,%s\n", opname, dis_buf, nameYMMReg(rG));
    }
-   putYMMReg( rG, unop(op, mkexpr(arg)) );
+   putYMMReg( rG, unop_maybe_round(op, round, mkexpr(arg)) );
    *uses_vvvv = False;
    return delta;
+}
+static
+Long dis_AVX256_E_to_G_unary_all_rnd ( /*OUT*/Bool* uses_vvvv,
+                                       VexAbiInfo* vbi,
+                                       Prefix pfx, Long delta,
+                                       const HChar* opname, IROp op )
+{
+   return dis_AVX256_E_to_G_unary_all_maybe_round ( uses_vvvv,
+                                                    vbi,
+                                                    pfx, delta,
+                                                    opname, op,
+                                                    get_sse_roundingmode() );
+}
+static
+Long dis_AVX256_E_to_G_unary_all ( /*OUT*/Bool* uses_vvvv,
+                                   VexAbiInfo* vbi,
+                                   Prefix pfx, Long delta,
+                                   const HChar* opname, IROp op )
+{
+   return dis_AVX256_E_to_G_unary_all_maybe_round ( uses_vvvv,
+                                                    vbi,
+                                                    pfx, delta,
+                                                    opname, op,
+                                                    NULL );
 }
 
 
@@ -23800,37 +24145,37 @@ Long dis_ESC_0F__VEX (
    case 0x51:
       /* VSQRTSS xmm3/m64(E), xmm2(V), xmm1(G) = VEX.NDS.LIG.F3.0F.WIG 51 /r */
       if (haveF3no66noF2(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo32_unary(
+         delta = dis_AVX128_E_V_to_G_lo32_unary_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsqrtss", Iop_Sqrt32F0x4 );
          goto decode_success;
       }
       /* VSQRTPS xmm2/m128(E), xmm1(G) = VEX.NDS.128.0F.WIG 51 /r */
       if (haveNo66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_to_G_unary_all(
+         delta = dis_AVX128_E_to_G_unary_all_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsqrtps", Iop_Sqrt32Fx4 );
          goto decode_success;
       }
       /* VSQRTPS ymm2/m256(E), ymm1(G) = VEX.NDS.256.0F.WIG 51 /r */
       if (haveNo66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_to_G_unary_all(
+         delta = dis_AVX256_E_to_G_unary_all_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsqrtps", Iop_Sqrt32Fx8 );
          goto decode_success;
       }
       /* VSQRTSD xmm3/m64(E), xmm2(V), xmm1(G) = VEX.NDS.LIG.F2.0F.WIG 51 /r */
       if (haveF2no66noF3(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo64_unary(
+         delta = dis_AVX128_E_V_to_G_lo64_unary_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsqrtsd", Iop_Sqrt64F0x2 );
          goto decode_success;
       }
       /* VSQRTPD xmm2/m128(E), xmm1(G) = VEX.NDS.128.66.0F.WIG 51 /r */
       if (have66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_to_G_unary_all(
+         delta = dis_AVX128_E_to_G_unary_all_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsqrtpd", Iop_Sqrt64Fx2 );
          goto decode_success;
       }
       /* VSQRTPD ymm2/m256(E), ymm1(G) = VEX.NDS.256.66.0F.WIG 51 /r */
       if (have66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_to_G_unary_all(
+         delta = dis_AVX256_E_to_G_unary_all_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsqrtpd", Iop_Sqrt64Fx4 );
          goto decode_success;
       }
@@ -23934,7 +24279,7 @@ Long dis_ESC_0F__VEX (
       if (haveNo66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
          delta = dis_VEX_NDS_256_AnySimdPfx_0F_WIG(
                     uses_vvvv, vbi, pfx, delta, "vandps", Iop_AndV256,
-                    NULL, True/*invertLeftArg*/, False/*swapArgs*/ );
+                    NULL, True/*invertLeftArg*/, False/*swapArgs*/);
          goto decode_success;
       }
       break;
@@ -24004,37 +24349,37 @@ Long dis_ESC_0F__VEX (
    case 0x58:
       /* VADDSD xmm3/m64, xmm2, xmm1 = VEX.NDS.LIG.F2.0F.WIG 58 /r */
       if (haveF2no66noF3(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo64(
+         delta = dis_AVX128_E_V_to_G_lo64_rnd(
                     uses_vvvv, vbi, pfx, delta, "vaddsd", Iop_Add64F0x2 );
          goto decode_success;
       }
       /* VADDSS xmm3/m32, xmm2, xmm1 = VEX.NDS.LIG.F3.0F.WIG 58 /r */
       if (haveF3no66noF2(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo32(
+         delta = dis_AVX128_E_V_to_G_lo32_rnd(
                     uses_vvvv, vbi, pfx, delta, "vaddss", Iop_Add32F0x4 );
          goto decode_success;
       }
       /* VADDPS xmm3/m128, xmm2, xmm1 = VEX.NDS.128.0F.WIG 58 /r */
       if (haveNo66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vaddps", Iop_Add32Fx4 );
          goto decode_success;
       }
       /* VADDPS ymm3/m256, ymm2, ymm1 = VEX.NDS.256.0F.WIG 58 /r */
       if (haveNo66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vaddps", Iop_Add32Fx8 );
          goto decode_success;
       }
       /* VADDPD xmm3/m128, xmm2, xmm1 = VEX.NDS.128.66.0F.WIG 58 /r */
       if (have66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vaddpd", Iop_Add64Fx2 );
          goto decode_success;
       }
       /* VADDPD ymm3/m256, ymm2, ymm1 = VEX.NDS.256.66.0F.WIG 58 /r */
       if (have66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vaddpd", Iop_Add64Fx4 );
          goto decode_success;
       }
@@ -24043,37 +24388,37 @@ Long dis_ESC_0F__VEX (
    case 0x59:
       /* VMULSD xmm3/m64, xmm2, xmm1 = VEX.NDS.LIG.F2.0F.WIG 59 /r */
       if (haveF2no66noF3(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo64(
+         delta = dis_AVX128_E_V_to_G_lo64_rnd(
                     uses_vvvv, vbi, pfx, delta, "vmulsd", Iop_Mul64F0x2 );
          goto decode_success;
       }
       /* VMULSS xmm3/m32, xmm2, xmm1 = VEX.NDS.LIG.F3.0F.WIG 59 /r */
       if (haveF3no66noF2(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo32(
+         delta = dis_AVX128_E_V_to_G_lo32_rnd(
                     uses_vvvv, vbi, pfx, delta, "vmulss", Iop_Mul32F0x4 );
          goto decode_success;
       }
       /* VMULPS xmm3/m128, xmm2, xmm1 = VEX.NDS.128.0F.WIG 59 /r */
       if (haveNo66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vmulps", Iop_Mul32Fx4 );
          goto decode_success;
       }
       /* VMULPS ymm3/m256, ymm2, ymm1 = VEX.NDS.256.0F.WIG 59 /r */
       if (haveNo66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vmulps", Iop_Mul32Fx8 );
          goto decode_success;
       }
       /* VMULPD xmm3/m128, xmm2, xmm1 = VEX.NDS.128.66.0F.WIG 59 /r */
       if (have66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vmulpd", Iop_Mul64Fx2 );
          goto decode_success;
       }
       /* VMULPD ymm3/m256, ymm2, ymm1 = VEX.NDS.256.66.0F.WIG 59 /r */
       if (have66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vmulpd", Iop_Mul64Fx4 );
          goto decode_success;
       }
@@ -24198,37 +24543,37 @@ Long dis_ESC_0F__VEX (
    case 0x5C:
       /* VSUBSD xmm3/m64, xmm2, xmm1 = VEX.NDS.LIG.F2.0F.WIG 5C /r */
       if (haveF2no66noF3(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo64(
+         delta = dis_AVX128_E_V_to_G_lo64_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsubsd", Iop_Sub64F0x2 );
          goto decode_success;
       }
       /* VSUBSS xmm3/m32, xmm2, xmm1 = VEX.NDS.LIG.F3.0F.WIG 5C /r */
       if (haveF3no66noF2(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo32(
+         delta = dis_AVX128_E_V_to_G_lo32_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsubss", Iop_Sub32F0x4 );
          goto decode_success;
       }
       /* VSUBPS xmm3/m128, xmm2, xmm1 = VEX.NDS.128.0F.WIG 5C /r */
       if (haveNo66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsubps", Iop_Sub32Fx4 );
          goto decode_success;
       }
       /* VSUBPS ymm3/m256, ymm2, ymm1 = VEX.NDS.256.0F.WIG 5C /r */
       if (haveNo66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsubps", Iop_Sub32Fx8 );
          goto decode_success;
       }
       /* VSUBPD xmm3/m128, xmm2, xmm1 = VEX.NDS.128.66.0F.WIG 5C /r */
       if (have66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsubpd", Iop_Sub64Fx2 );
          goto decode_success;
       }
       /* VSUBPD ymm3/m256, ymm2, ymm1 = VEX.NDS.256.66.0F.WIG 5C /r */
       if (have66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vsubpd", Iop_Sub64Fx4 );
          goto decode_success;
       }
@@ -24276,37 +24621,37 @@ Long dis_ESC_0F__VEX (
    case 0x5E:
       /* VDIVSD xmm3/m64, xmm2, xmm1 = VEX.NDS.LIG.F2.0F.WIG 5E /r */
       if (haveF2no66noF3(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo64(
+         delta = dis_AVX128_E_V_to_G_lo64_rnd(
                     uses_vvvv, vbi, pfx, delta, "vdivsd", Iop_Div64F0x2 );
          goto decode_success;
       }
       /* VDIVSS xmm3/m32, xmm2, xmm1 = VEX.NDS.LIG.F3.0F.WIG 5E /r */
       if (haveF3no66noF2(pfx)) {
-         delta = dis_AVX128_E_V_to_G_lo32(
+         delta = dis_AVX128_E_V_to_G_lo32_rnd(
                     uses_vvvv, vbi, pfx, delta, "vdivss", Iop_Div32F0x4 );
          goto decode_success;
       }
       /* VDIVPS xmm3/m128, xmm2, xmm1 = VEX.NDS.128.0F.WIG 5E /r */
       if (haveNo66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vdivps", Iop_Div32Fx4 );
          goto decode_success;
       }
       /* VDIVPS ymm3/m256, ymm2, ymm1 = VEX.NDS.256.0F.WIG 5E /r */
       if (haveNo66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vdivps", Iop_Div32Fx8 );
          goto decode_success;
       }
       /* VDIVPD xmm3/m128, xmm2, xmm1 = VEX.NDS.128.66.0F.WIG 5E /r */
       if (have66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_AVX128_E_V_to_G(
+         delta = dis_AVX128_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vdivpd", Iop_Div64Fx2 );
          goto decode_success;
       }
       /* VDIVPD ymm3/m256, ymm2, ymm1 = VEX.NDS.256.66.0F.WIG 5E /r */
       if (have66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_AVX256_E_V_to_G(
+         delta = dis_AVX256_E_V_to_G_rnd(
                     uses_vvvv, vbi, pfx, delta, "vdivpd", Iop_Div64Fx4 );
          goto decode_success;
       }
@@ -25544,28 +25889,28 @@ Long dis_ESC_0F__VEX (
    case 0xD0:
       /* VADDSUBPD xmm3/m128, xmm2, xmm1 = VEX.NDS.128.66.0F.WIG D0 /r */
       if (have66noF2noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_VEX_NDS_128_AnySimdPfx_0F_WIG_complex(
+         delta = dis_VEX_NDS_128_AnySimdPfx_0F_WIG_complex_rnd(
                     uses_vvvv, vbi, pfx, delta,
                     "vaddsubpd", math_ADDSUBPD_128 );
          goto decode_success;
       }
       /* VADDSUBPD ymm3/m256, ymm2, ymm1 = VEX.NDS.256.66.0F.WIG D0 /r */
       if (have66noF2noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_VEX_NDS_256_AnySimdPfx_0F_WIG_complex(
+         delta = dis_VEX_NDS_256_AnySimdPfx_0F_WIG_complex_rnd(
                     uses_vvvv, vbi, pfx, delta,
                     "vaddsubpd", math_ADDSUBPD_256 );
          goto decode_success;
       }
       /* VADDSUBPS xmm3/m128, xmm2, xmm1 = VEX.NDS.128.F2.0F.WIG D0 /r */
       if (haveF2no66noF3(pfx) && 0==getVexL(pfx)/*128*/) {
-         delta = dis_VEX_NDS_128_AnySimdPfx_0F_WIG_complex(
+         delta = dis_VEX_NDS_128_AnySimdPfx_0F_WIG_complex_rnd(
                     uses_vvvv, vbi, pfx, delta,
                     "vaddsubps", math_ADDSUBPS_128 );
          goto decode_success;
       }
       /* VADDSUBPS ymm3/m256, ymm2, ymm1 = VEX.NDS.256.F2.0F.WIG D0 /r */
       if (haveF2no66noF3(pfx) && 1==getVexL(pfx)/*256*/) {
-         delta = dis_VEX_NDS_256_AnySimdPfx_0F_WIG_complex(
+         delta = dis_VEX_NDS_256_AnySimdPfx_0F_WIG_complex_rnd(
                     uses_vvvv, vbi, pfx, delta,
                     "vaddsubps", math_ADDSUBPS_256 );
          goto decode_success;
@@ -26668,7 +27013,7 @@ static Long dis_FMA ( VexAbiInfo* vbi, Prefix pfx, Long delta, UChar opc )
       if ((i & 1) ? negateZodd : negateZeven)
          z[i] = unop(ty == Ity_F64 ? Iop_NegF64 : Iop_NegF32, z[i]);
       x[i] = IRExpr_Qop(ty == Ity_F64 ? Iop_MAddF64 : Iop_MAddF32,
-                        get_FAKE_roundingmode(), x[i], y[i], z[i]);
+                        get_sse_roundingmode(), x[i], y[i], z[i]);
       if (negateRes)
          x[i] = unop(ty == Ity_F64 ? Iop_NegF64 : Iop_NegF32, x[i]);
       if (ty == Ity_F64)

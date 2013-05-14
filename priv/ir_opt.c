@@ -1175,14 +1175,6 @@ static Bool isZeroU32 ( IRExpr* e )
                   && e->Iex.Const.con->Ico.U32 == 0);
 }
 
-/* Is this literally IRExpr_Const(IRConst_U32(1---1)) ? */
-static Bool isOnesU32 ( IRExpr* e )
-{
-   return toBool( e->tag == Iex_Const 
-                  && e->Iex.Const.con->tag == Ico_U32
-                  && e->Iex.Const.con->Ico.U32 == 0xFFFFFFFF );
-}
-
 /* Is this an integer constant with value 0 ? */
 static Bool isZeroU ( IRExpr* e )
 {
@@ -1193,6 +1185,8 @@ static Bool isZeroU ( IRExpr* e )
       case Ico_U16:   return toBool( e->Iex.Const.con->Ico.U16 == 0);
       case Ico_U32:   return toBool( e->Iex.Const.con->Ico.U32 == 0);
       case Ico_U64:   return toBool( e->Iex.Const.con->Ico.U64 == 0);
+      case Ico_V128:  return toBool( e->Iex.Const.con->Ico.V128 == 0);
+      case Ico_V256:  return toBool( e->Iex.Const.con->Ico.V256 == 0);
       default: vpanic("isZeroU");
    }
 }
@@ -1208,6 +1202,8 @@ static Bool isOnesU ( IRExpr* e )
                                      == 0xFFFFFFFF);
       case Ico_U64:   return toBool( e->Iex.Const.con->Ico.U64
                                      == 0xFFFFFFFFFFFFFFFFULL);
+      case Ico_V128:  return toBool( e->Iex.Const.con->Ico.V128 == 0xFFFF);
+      case Ico_V256:  return toBool( e->Iex.Const.con->Ico.V256 == 0xFFFFFFFF);
       default: ppIRExpr(e); vpanic("isOnesU");
    }
 }
@@ -2047,6 +2043,8 @@ static IRExpr* fold_Expr ( IRExpr** env, IRExpr* e )
             case Iop_Or32:
             case Iop_Or64:
             case Iop_Max32U:
+            case Iop_OrV128:
+            case Iop_OrV256:
                /* Or8/Or16/Or32/Or64/Max32U(x,0) ==> x */
                if (isZeroU(e->Iex.Binop.arg2)) {
                   e2 = e->Iex.Binop.arg1;
@@ -2120,45 +2118,28 @@ static IRExpr* fold_Expr ( IRExpr** env, IRExpr* e )
                }
                break;
 
+            case Iop_And8:
+            case Iop_And16:
             case Iop_And32:
+            case Iop_And64:
+            case Iop_AndV128:
+            case Iop_AndV256:
                /* And32(x,0xFFFFFFFF) ==> x */
-               if (isOnesU32(e->Iex.Binop.arg2)) {
+               if (isOnesU(e->Iex.Binop.arg2)) {
                   e2 = e->Iex.Binop.arg1;
                   break;
                }
                /* And32(x,0) ==> 0 */
-               if (isZeroU32(e->Iex.Binop.arg2)) {
+               if (isZeroU(e->Iex.Binop.arg2)) {
                   e2 = e->Iex.Binop.arg2;
                   break;
                }
                /* And32(0,x) ==> 0 */
-               if (isZeroU32(e->Iex.Binop.arg1)) {
+               if (isZeroU(e->Iex.Binop.arg1)) {
                   e2 = e->Iex.Binop.arg1;
                   break;
                }
                /* And32(t,t) ==> t, for some IRTemp t */
-               if (sameIRExprs(env, e->Iex.Binop.arg1, e->Iex.Binop.arg2)) {
-                  e2 = e->Iex.Binop.arg1;
-                  break;
-               }
-               break;
-
-            case Iop_And8:
-            case Iop_And16:
-            case Iop_And64:
-            case Iop_AndV128:
-            case Iop_AndV256:
-               /* And8/And16/And64/AndV128/AndV256(t,t) 
-                  ==> t, for some IRTemp t */
-               if (sameIRExprs(env, e->Iex.Binop.arg1, e->Iex.Binop.arg2)) {
-                  e2 = e->Iex.Binop.arg1;
-                  break;
-               }
-               break;
-
-            case Iop_OrV128:
-            case Iop_OrV256:
-               /* V128/V256(t,t) ==> t, for some IRTemp t */
                if (sameIRExprs(env, e->Iex.Binop.arg1, e->Iex.Binop.arg2)) {
                   e2 = e->Iex.Binop.arg1;
                   break;

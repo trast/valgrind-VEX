@@ -644,6 +644,14 @@ static void storeLE ( IRExpr* addr, IRExpr* data )
    stmt( IRStmt_Store(Iend_LE, addr, data) );
 }
 
+static IRExpr* unop_maybe_round ( IROp op, IRExpr* round, IRExpr* a )
+{
+   if (round)
+      return IRExpr_Binop(op, round, a);
+   else
+      return IRExpr_Unop(op, a);
+}
+
 static IRExpr* unop ( IROp op, IRExpr* a )
 {
    return IRExpr_Unop(op, a);
@@ -652,6 +660,14 @@ static IRExpr* unop ( IROp op, IRExpr* a )
 static IRExpr* binop ( IROp op, IRExpr* a1, IRExpr* a2 )
 {
    return IRExpr_Binop(op, a1, a2);
+}
+
+static IRExpr* binop_maybe_round ( IROp op, IRExpr* round, IRExpr* a1, IRExpr* a2 )
+{
+   if (round)
+      return IRExpr_Triop(op, round, a1, a2);
+   else
+      return IRExpr_Binop(op, a1, a2);
 }
 
 static IRExpr* triop ( IROp op, IRExpr* a1, IRExpr* a2, IRExpr* a3 )
@@ -6868,7 +6884,8 @@ void dis_ret ( /*MOD*/DisResult* dres, UInt d32 )
 static UInt dis_SSE_E_to_G_all_wrk ( 
                UChar sorb, Int delta, 
                const HChar* opname, IROp op,
-               Bool   invertG
+               Bool   invertG,
+               IRExpr* round
             )
 {
    HChar   dis_buf[50];
@@ -6880,7 +6897,7 @@ static UInt dis_SSE_E_to_G_all_wrk (
                 : getXMMReg(gregOfRM(rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRM(rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            getXMMReg(eregOfRM(rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRM(rm)),
@@ -6889,7 +6906,7 @@ static UInt dis_SSE_E_to_G_all_wrk (
    } else {
       addr = disAMode ( &alen, sorb, delta, dis_buf );
       putXMMReg( gregOfRM(rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            loadLE(Ity_V128, mkexpr(addr))) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
@@ -6904,7 +6921,17 @@ static UInt dis_SSE_E_to_G_all_wrk (
 static
 UInt dis_SSE_E_to_G_all ( UChar sorb, Int delta, const HChar* opname, IROp op )
 {
-   return dis_SSE_E_to_G_all_wrk( sorb, delta, opname, op, False );
+   return dis_SSE_E_to_G_all_wrk( sorb, delta, opname, op, False, NULL );
+}
+
+/* All lanes SSE binary operation, G = G `op` E, for ops with a
+ * rounding mode arg. */
+
+static
+UInt dis_SSE_E_to_G_all_rnd ( UChar sorb, Int delta, const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_all_wrk( sorb, delta, opname, op, False,
+                                  get_FAKE_roundingmode() );
 }
 
 /* All lanes SSE binary operation, G = (not G) `op` E. */
@@ -6913,14 +6940,15 @@ static
 UInt dis_SSE_E_to_G_all_invG ( UChar sorb, Int delta, 
                                const HChar* opname, IROp op )
 {
-   return dis_SSE_E_to_G_all_wrk( sorb, delta, opname, op, True );
+   return dis_SSE_E_to_G_all_wrk( sorb, delta, opname, op, True, NULL );
 }
 
 
 /* Lowest 32-bit lane only SSE binary operation, G = G `op` E. */
 
-static UInt dis_SSE_E_to_G_lo32 ( UChar sorb, Int delta, 
-                                  const HChar* opname, IROp op )
+static UInt dis_SSE_E_to_G_lo32_maybe_round ( UChar sorb, Int delta,
+                                              const HChar* opname, IROp op,
+                                              IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -6929,7 +6957,7 @@ static UInt dis_SSE_E_to_G_lo32 ( UChar sorb, Int delta,
    IRExpr* gpart = getXMMReg(gregOfRM(rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRM(rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            getXMMReg(eregOfRM(rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRM(rm)),
@@ -6943,19 +6971,34 @@ static UInt dis_SSE_E_to_G_lo32 ( UChar sorb, Int delta,
       assign( epart, unop( Iop_32UtoV128,
                            loadLE(Ity_I32, mkexpr(addr))) );
       putXMMReg( gregOfRM(rm), 
-                 binop(op, gpart, mkexpr(epart)) );
+                 binop_maybe_round(op, round, gpart, mkexpr(epart)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRM(rm)) );
       return delta+alen;
    }
 }
+static UInt dis_SSE_E_to_G_lo32 ( UChar sorb, Int delta,
+                                  const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo32_maybe_round ( sorb, delta,
+                                            opname, op,
+                                            NULL );
+}
+static UInt dis_SSE_E_to_G_lo32_rnd ( UChar sorb, Int delta,
+                                      const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo32_maybe_round ( sorb, delta,
+                                            opname, op,
+                                            get_FAKE_roundingmode() );
+}
 
 
 /* Lower 64-bit lane only SSE binary operation, G = G `op` E. */
 
-static UInt dis_SSE_E_to_G_lo64 ( UChar sorb, Int delta, 
-                                  const HChar* opname, IROp op )
+static UInt dis_SSE_E_to_G_lo64_maybe_round ( UChar sorb, Int delta,
+                                              const HChar* opname, IROp op,
+                                              IRExpr* round )
 {
    HChar   dis_buf[50];
    Int     alen;
@@ -6964,7 +7007,7 @@ static UInt dis_SSE_E_to_G_lo64 ( UChar sorb, Int delta,
    IRExpr* gpart = getXMMReg(gregOfRM(rm));
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRM(rm), 
-                 binop(op, gpart,
+                 binop_maybe_round(op, round, gpart,
                            getXMMReg(eregOfRM(rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRM(rm)),
@@ -6978,20 +7021,35 @@ static UInt dis_SSE_E_to_G_lo64 ( UChar sorb, Int delta,
       assign( epart, unop( Iop_64UtoV128,
                            loadLE(Ity_I64, mkexpr(addr))) );
       putXMMReg( gregOfRM(rm), 
-                 binop(op, gpart, mkexpr(epart)) );
+                 binop_maybe_round(op, round, gpart, mkexpr(epart)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRM(rm)) );
       return delta+alen;
    }
 }
+static UInt dis_SSE_E_to_G_lo64 ( UChar sorb, Int delta,
+                                  const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo64_maybe_round ( sorb, delta,
+                                            opname, op,
+                                            NULL );
+}
+static UInt dis_SSE_E_to_G_lo64_rnd ( UChar sorb, Int delta,
+                                      const HChar* opname, IROp op )
+{
+   return dis_SSE_E_to_G_lo64_maybe_round ( sorb, delta,
+                                            opname, op,
+                                            get_FAKE_roundingmode() );
+}
 
 
 /* All lanes unary SSE operation, G = op(E). */
 
-static UInt dis_SSE_E_to_G_unary_all ( 
+static UInt dis_SSE_E_to_G_unary_all_maybe_round (
                UChar sorb, Int delta, 
-               const HChar* opname, IROp op
+               const HChar* opname, IROp op,
+               IRExpr* round
             )
 {
    HChar   dis_buf[50];
@@ -7000,7 +7058,7 @@ static UInt dis_SSE_E_to_G_unary_all (
    UChar   rm = getIByte(delta);
    if (epartIsReg(rm)) {
       putXMMReg( gregOfRM(rm), 
-                 unop(op, getXMMReg(eregOfRM(rm))) );
+                 unop_maybe_round(op, round, getXMMReg(eregOfRM(rm))) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRM(rm)),
                         nameXMMReg(gregOfRM(rm)) );
@@ -7008,20 +7066,41 @@ static UInt dis_SSE_E_to_G_unary_all (
    } else {
       addr = disAMode ( &alen, sorb, delta, dis_buf );
       putXMMReg( gregOfRM(rm), 
-                 unop(op, loadLE(Ity_V128, mkexpr(addr))) );
+                 unop_maybe_round(op, round, loadLE(Ity_V128, mkexpr(addr))) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRM(rm)) );
       return delta+alen;
    }
 }
+static UInt dis_SSE_E_to_G_unary_all (
+               UChar sorb, Int delta,
+               const HChar* opname, IROp op
+            )
+{
+   return dis_SSE_E_to_G_unary_all_maybe_round (
+      sorb, delta,
+      opname, op,
+      NULL);
+}
+static UInt dis_SSE_E_to_G_unary_all_rnd (
+               UChar sorb, Int delta,
+               const HChar* opname, IROp op
+            )
+{
+   return dis_SSE_E_to_G_unary_all_maybe_round (
+      sorb, delta,
+      opname, op,
+      get_FAKE_roundingmode() );
+}
 
 
 /* Lowest 32-bit lane only unary SSE operation, G = op(E). */
 
-static UInt dis_SSE_E_to_G_unary_lo32 ( 
+static UInt dis_SSE_E_to_G_unary_lo32_maybe_round (
                UChar sorb, Int delta, 
-               const HChar* opname, IROp op
+               const HChar* opname, IROp op,
+               IRExpr* round
             )
 {
    /* First we need to get the old G value and patch the low 32 bits
@@ -7040,7 +7119,7 @@ static UInt dis_SSE_E_to_G_unary_lo32 (
               binop( Iop_SetV128lo32,
                      mkexpr(oldG0),
                      getXMMRegLane32(eregOfRM(rm), 0)) );
-      putXMMReg( gregOfRM(rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRM(rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRM(rm)),
                         nameXMMReg(gregOfRM(rm)) );
@@ -7051,20 +7130,41 @@ static UInt dis_SSE_E_to_G_unary_lo32 (
               binop( Iop_SetV128lo32,
                      mkexpr(oldG0),
                      loadLE(Ity_I32, mkexpr(addr)) ));
-      putXMMReg( gregOfRM(rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRM(rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRM(rm)) );
       return delta+alen;
    }
 }
+static UInt dis_SSE_E_to_G_unary_lo32 (
+               UChar sorb, Int delta,
+               const HChar* opname, IROp op
+            )
+{
+   return dis_SSE_E_to_G_unary_lo32_maybe_round (
+      sorb, delta,
+      opname, op,
+      NULL);
+}
+static UInt dis_SSE_E_to_G_unary_lo32_rnd (
+               UChar sorb, Int delta,
+               const HChar* opname, IROp op
+            )
+{
+   return dis_SSE_E_to_G_unary_lo32_maybe_round (
+      sorb, delta,
+      opname, op,
+      get_FAKE_roundingmode() );
+}
 
 
 /* Lowest 64-bit lane only unary SSE operation, G = op(E). */
 
-static UInt dis_SSE_E_to_G_unary_lo64 ( 
+static UInt dis_SSE_E_to_G_unary_lo64_maybe_round (
                UChar sorb, Int delta, 
-               const HChar* opname, IROp op
+               const HChar* opname, IROp op,
+               IRExpr* round
             )
 {
    /* First we need to get the old G value and patch the low 64 bits
@@ -7083,7 +7183,7 @@ static UInt dis_SSE_E_to_G_unary_lo64 (
               binop( Iop_SetV128lo64,
                      mkexpr(oldG0),
                      getXMMRegLane64(eregOfRM(rm), 0)) );
-      putXMMReg( gregOfRM(rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRM(rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         nameXMMReg(eregOfRM(rm)),
                         nameXMMReg(gregOfRM(rm)) );
@@ -7094,12 +7194,22 @@ static UInt dis_SSE_E_to_G_unary_lo64 (
               binop( Iop_SetV128lo64,
                      mkexpr(oldG0),
                      loadLE(Ity_I64, mkexpr(addr)) ));
-      putXMMReg( gregOfRM(rm), unop(op, mkexpr(oldG1)) );
+      putXMMReg( gregOfRM(rm), unop_maybe_round(op, round, mkexpr(oldG1)) );
       DIP("%s %s,%s\n", opname,
                         dis_buf,
                         nameXMMReg(gregOfRM(rm)) );
       return delta+alen;
    }
+}
+static UInt dis_SSE_E_to_G_unary_lo64_rnd (
+               UChar sorb, Int delta,
+               const HChar* opname, IROp op
+            )
+{
+   return dis_SSE_E_to_G_unary_lo64_maybe_round (
+      sorb, delta,
+      opname, op,
+      get_FAKE_roundingmode() );
 }
 
 
@@ -8331,14 +8441,14 @@ DisResult disInstr_X86_WRK (
 
    /* 0F 58 = ADDPS -- add 32Fx4 from R/M to R */
    if (sz == 4 && insn[0] == 0x0F && insn[1] == 0x58) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "addps", Iop_Add32Fx4 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "addps", Iop_Add32Fx4 );
       goto decode_success;
    }
 
    /* F3 0F 58 = ADDSS -- add 32F0x4 from R/M to R */
    if (insn[0] == 0xF3 && insn[1] == 0x0F && insn[2] == 0x58) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo32( sorb, delta+3, "addss", Iop_Add32F0x4 );
+      delta = dis_SSE_E_to_G_lo32_rnd( sorb, delta+3, "addss", Iop_Add32F0x4 );
       goto decode_success;
    }
 
@@ -8575,14 +8685,14 @@ DisResult disInstr_X86_WRK (
 
    /* 0F 5E = DIVPS -- div 32Fx4 from R/M to R */
    if (sz == 4 && insn[0] == 0x0F && insn[1] == 0x5E) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "divps", Iop_Div32Fx4 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "divps", Iop_Div32Fx4 );
       goto decode_success;
    }
 
    /* F3 0F 5E = DIVSS -- div 32F0x4 from R/M to R */
    if (insn[0] == 0xF3 && insn[1] == 0x0F && insn[2] == 0x5E) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo32( sorb, delta+3, "divss", Iop_Div32F0x4 );
+      delta = dis_SSE_E_to_G_lo32_rnd( sorb, delta+3, "divss", Iop_Div32F0x4 );
       goto decode_success;
    }
 
@@ -8908,14 +9018,14 @@ DisResult disInstr_X86_WRK (
 
    /* 0F 59 = MULPS -- mul 32Fx4 from R/M to R */
    if (sz == 4 && insn[0] == 0x0F && insn[1] == 0x59) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "mulps", Iop_Mul32Fx4 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "mulps", Iop_Mul32Fx4 );
       goto decode_success;
    }
 
    /* F3 0F 59 = MULSS -- mul 32F0x4 from R/M to R */
    if (insn[0] == 0xF3 && insn[1] == 0x0F && insn[2] == 0x59) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo32( sorb, delta+3, "mulss", Iop_Mul32F0x4 );
+      delta = dis_SSE_E_to_G_lo32_rnd( sorb, delta+3, "mulss", Iop_Mul32F0x4 );
       goto decode_success;
    }
 
@@ -9272,7 +9382,7 @@ DisResult disInstr_X86_WRK (
 
    /* 0F 51 = SQRTPS -- approx sqrt 32Fx4 from R/M to R */
    if (sz == 4 && insn[0] == 0x0F && insn[1] == 0x51) {
-      delta = dis_SSE_E_to_G_unary_all( sorb, delta+2, 
+      delta = dis_SSE_E_to_G_unary_all_rnd( sorb, delta+2,
                                         "sqrtps", Iop_Sqrt32Fx4 );
       goto decode_success;
    }
@@ -9280,7 +9390,7 @@ DisResult disInstr_X86_WRK (
    /* F3 0F 51 = SQRTSS -- approx sqrt 32F0x4 from R/M to R */
    if (insn[0] == 0xF3 && insn[1] == 0x0F && insn[2] == 0x51) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_unary_lo32( sorb, delta+3, 
+      delta = dis_SSE_E_to_G_unary_lo32_rnd( sorb, delta+3,
                                          "sqrtss", Iop_Sqrt32F0x4 );
       goto decode_success;
    }
@@ -9312,14 +9422,14 @@ DisResult disInstr_X86_WRK (
 
    /* 0F 5C = SUBPS -- sub 32Fx4 from R/M to R */
    if (sz == 4 && insn[0] == 0x0F && insn[1] == 0x5C) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "subps", Iop_Sub32Fx4 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "subps", Iop_Sub32Fx4 );
       goto decode_success;
    }
 
    /* F3 0F 5C = SUBSS -- sub 32F0x4 from R/M to R */
    if (insn[0] == 0xF3 && insn[1] == 0x0F && insn[2] == 0x5C) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo32( sorb, delta+3, "subss", Iop_Sub32F0x4 );
+      delta = dis_SSE_E_to_G_lo32_rnd( sorb, delta+3, "subss", Iop_Sub32F0x4 );
       goto decode_success;
    }
 
@@ -9386,14 +9496,14 @@ DisResult disInstr_X86_WRK (
 
    /* 66 0F 58 = ADDPD -- add 32Fx4 from R/M to R */
    if (sz == 2 && insn[0] == 0x0F && insn[1] == 0x58) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "addpd", Iop_Add64Fx2 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "addpd", Iop_Add64Fx2 );
       goto decode_success;
    }
  
    /* F2 0F 58 = ADDSD -- add 64F0x2 from R/M to R */
    if (insn[0] == 0xF2 && insn[1] == 0x0F && insn[2] == 0x58) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo64( sorb, delta+3, "addsd", Iop_Add64F0x2 );
+      delta = dis_SSE_E_to_G_lo64_rnd( sorb, delta+3, "addsd", Iop_Add64F0x2 );
       goto decode_success;
    }
 
@@ -9985,14 +10095,14 @@ DisResult disInstr_X86_WRK (
 
    /* 66 0F 5E = DIVPD -- div 64Fx2 from R/M to R */
    if (sz == 2 && insn[0] == 0x0F && insn[1] == 0x5E) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "divpd", Iop_Div64Fx2 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "divpd", Iop_Div64Fx2 );
       goto decode_success;
    }
 
    /* F2 0F 5E = DIVSD -- div 64F0x2 from R/M to R */
    if (insn[0] == 0xF2 && insn[1] == 0x0F && insn[2] == 0x5E) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo64( sorb, delta+3, "divsd", Iop_Div64F0x2 );
+      delta = dis_SSE_E_to_G_lo64_rnd( sorb, delta+3, "divsd", Iop_Div64F0x2 );
       goto decode_success;
    }
 
@@ -10466,14 +10576,14 @@ DisResult disInstr_X86_WRK (
 
    /* 66 0F 59 = MULPD -- mul 64Fx2 from R/M to R */
    if (sz == 2 && insn[0] == 0x0F && insn[1] == 0x59) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "mulpd", Iop_Mul64Fx2 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "mulpd", Iop_Mul64Fx2 );
       goto decode_success;
    }
 
    /* F2 0F 59 = MULSD -- mul 64F0x2 from R/M to R */
    if (insn[0] == 0xF2 && insn[1] == 0x0F && insn[2] == 0x59) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo64( sorb, delta+3, "mulsd", Iop_Mul64F0x2 );
+      delta = dis_SSE_E_to_G_lo64_rnd( sorb, delta+3, "mulsd", Iop_Mul64F0x2 );
       goto decode_success;
    }
 
@@ -10534,7 +10644,7 @@ DisResult disInstr_X86_WRK (
 
    /* 66 0F 51 = SQRTPD -- approx sqrt 64Fx2 from R/M to R */
    if (sz == 2 && insn[0] == 0x0F && insn[1] == 0x51) {
-      delta = dis_SSE_E_to_G_unary_all( sorb, delta+2, 
+      delta = dis_SSE_E_to_G_unary_all_rnd( sorb, delta+2,
                                         "sqrtpd", Iop_Sqrt64Fx2 );
       goto decode_success;
    }
@@ -10542,21 +10652,21 @@ DisResult disInstr_X86_WRK (
    /* F2 0F 51 = SQRTSD -- approx sqrt 64F0x2 from R/M to R */
    if (insn[0] == 0xF2 && insn[1] == 0x0F && insn[2] == 0x51) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_unary_lo64( sorb, delta+3, 
+      delta = dis_SSE_E_to_G_unary_lo64_rnd( sorb, delta+3,
                                          "sqrtsd", Iop_Sqrt64F0x2 );
       goto decode_success;
    }
 
    /* 66 0F 5C = SUBPD -- sub 64Fx2 from R/M to R */
    if (sz == 2 && insn[0] == 0x0F && insn[1] == 0x5C) {
-      delta = dis_SSE_E_to_G_all( sorb, delta+2, "subpd", Iop_Sub64Fx2 );
+      delta = dis_SSE_E_to_G_all_rnd( sorb, delta+2, "subpd", Iop_Sub64Fx2 );
       goto decode_success;
    }
 
    /* F2 0F 5C = SUBSD -- sub 64F0x2 from R/M to R */
    if (insn[0] == 0xF2 && insn[1] == 0x0F && insn[2] == 0x5C) {
       vassert(sz == 4);
-      delta = dis_SSE_E_to_G_lo64( sorb, delta+3, "subsd", Iop_Sub64F0x2 );
+      delta = dis_SSE_E_to_G_lo64_rnd( sorb, delta+3, "subsd", Iop_Sub64F0x2 );
       goto decode_success;
    }
 
@@ -11698,6 +11808,7 @@ DisResult disInstr_X86_WRK (
       IRTemp gV   = newTemp(Ity_V128);
       IRTemp addV = newTemp(Ity_V128);
       IRTemp subV = newTemp(Ity_V128);
+      IRTemp rm   = newTemp(Ity_I32);
       a3 = a2 = a1 = a0 = s3 = s2 = s1 = s0 = IRTemp_INVALID;
 
       modrm = insn[3];
@@ -11716,8 +11827,9 @@ DisResult disInstr_X86_WRK (
 
       assign( gV, getXMMReg(gregOfRM(modrm)) );
 
-      assign( addV, binop(Iop_Add32Fx4, mkexpr(gV), mkexpr(eV)) );
-      assign( subV, binop(Iop_Sub32Fx4, mkexpr(gV), mkexpr(eV)) );
+      assign( rm, get_FAKE_roundingmode() );
+      assign( addV, triop(Iop_Add32Fx4, mkexpr(rm), mkexpr(gV), mkexpr(eV)) );
+      assign( subV, triop(Iop_Sub32Fx4, mkexpr(rm), mkexpr(gV), mkexpr(eV)) );
 
       breakup128to32s( addV, &a3, &a2, &a1, &a0 );
       breakup128to32s( subV, &s3, &s2, &s1, &s0 );
@@ -11734,6 +11846,7 @@ DisResult disInstr_X86_WRK (
       IRTemp subV = newTemp(Ity_V128);
       IRTemp a1     = newTemp(Ity_I64);
       IRTemp s0     = newTemp(Ity_I64);
+      IRTemp rm   = newTemp(Ity_I32);
 
       modrm = insn[2];
       if (epartIsReg(modrm)) {
@@ -11751,8 +11864,9 @@ DisResult disInstr_X86_WRK (
 
       assign( gV, getXMMReg(gregOfRM(modrm)) );
 
-      assign( addV, binop(Iop_Add64Fx2, mkexpr(gV), mkexpr(eV)) );
-      assign( subV, binop(Iop_Sub64Fx2, mkexpr(gV), mkexpr(eV)) );
+      assign( rm, get_FAKE_roundingmode() );
+      assign( addV, triop(Iop_Add64Fx2, mkexpr(rm), mkexpr(gV), mkexpr(eV)) );
+      assign( subV, triop(Iop_Sub64Fx2, mkexpr(rm), mkexpr(gV), mkexpr(eV)) );
 
       assign( a1, unop(Iop_V128HIto64, mkexpr(addV) ));
       assign( s0, unop(Iop_V128to64,   mkexpr(subV) ));
@@ -11798,7 +11912,8 @@ DisResult disInstr_X86_WRK (
       assign( rightV, mk128from32s( e3, e1, g3, g1 ) );
 
       putXMMReg( gregOfRM(modrm), 
-                 binop(isAdd ? Iop_Add32Fx4 : Iop_Sub32Fx4, 
+                 triop(isAdd ? Iop_Add32Fx4 : Iop_Sub32Fx4,
+                       get_FAKE_roundingmode(),
                        mkexpr(leftV), mkexpr(rightV) ) );
       goto decode_success;
    }
@@ -11842,7 +11957,8 @@ DisResult disInstr_X86_WRK (
       assign( rightV, binop(Iop_64HLtoV128, mkexpr(e1),mkexpr(g1)) );
 
       putXMMReg( gregOfRM(modrm), 
-                 binop(isAdd ? Iop_Add64Fx2 : Iop_Sub64Fx2, 
+                 triop(isAdd ? Iop_Add64Fx2 : Iop_Sub64Fx2,
+                       get_FAKE_roundingmode(),
                        mkexpr(leftV), mkexpr(rightV) ) );
       goto decode_success;
    }
